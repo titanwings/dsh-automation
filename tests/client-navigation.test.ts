@@ -30,13 +30,16 @@ test('automation navigation never silently no-ops when hero state has no tabs', 
   assert.equal(unavailable, 1)
 })
 
-test('client registers both the session view and root sidebar action', () => {
+test('client registers the session view and installs the homepage sidebar entry', () => {
   const registrations: Array<{
     readonly options: { readonly name: string; readonly id?: string; readonly inject?: () => unknown }
     readonly component: { readonly name?: string }
   }> = []
+  const effects: Array<{ readonly factory: () => unknown; readonly label?: string }> = []
   const ctx = {
-    effect: () => {},
+    effect: (factory: () => unknown, label?: string) => {
+      effects.push({ factory, ...(label === undefined ? {} : { label }) })
+    },
     connection: { rpc: { call: async () => ({}) } },
     sessions: { refresh: async () => {}, open: () => {} },
     locale: {
@@ -55,21 +58,20 @@ test('client registers both the session view and root sidebar action', () => {
   apply(ctx as never)
 
   assert.deepEqual(registrations.map(({ options }) => [options.name, options.id]), [
-    ['sidebar.footer.action', 'automation'],
     ['conversation.view', 'automation'],
   ])
-  assert.equal(registrations[0]?.component.name, 'AutomationSidebarAction')
-  const injected = registrations[0]?.options.inject?.() as { readonly automationTabs?: unknown }
-  assert.equal(typeof injected.automationTabs, 'function')
+  assert.equal(registrations[0]?.component.name, 'AutomationView')
+  assert.ok(effects.some(effect => effect.label === 'dsh-automation: sidebar entry'))
 })
 
-test('sidebar action carries visible status feedback and namespaced styles', () => {
-  const componentSource = readFileSync(new URL('../src/client/AutomationSidebarAction.tsx', import.meta.url), 'utf8')
+test('homepage sidebar entry carries visible status feedback and namespaced styles', () => {
+  const entrySource = readFileSync(new URL('../src/client/sidebar-entry.ts', import.meta.url), 'utf8')
   const styleSource = readFileSync(new URL('../src/client/styles.ts', import.meta.url), 'utf8')
 
-  assert.match(componentSource, /data-dsh-automation-entry=""/)
-  assert.match(componentSource, /role="status"/)
-  assert.match(componentSource, /sidebar\.unavailable/)
-  assert.match(styleSource, /\.dsh-automation-sidebar-button\{/)
+  assert.match(entrySource, /data-dsh-automation-entry/)
+  assert.match(entrySource, /setAttribute\('role', 'status'\)/)
+  assert.match(entrySource, /sidebar\.unavailable/)
+  assert.match(entrySource, /newSession/)
+  assert.match(styleSource, /\.dsh-automation-sidebar-entry\{/)
   assert.match(styleSource, /\.dsh-automation-sidebar-feedback\{/)
 })

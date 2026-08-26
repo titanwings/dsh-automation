@@ -1,10 +1,15 @@
 const STYLE_ID = 'dsh-automation-styles'
 
 const CSS_TEXT = String.raw`
-.dsh-automation-sidebar-action,.dsh-automation-sidebar-action *{box-sizing:border-box}
-.dsh-automation-sidebar-action{position:relative;display:flex;width:100%;min-width:0;flex-direction:column;gap:4px;color:var(--dsw-alias-label-primary);font-family:var(--dsw-font-family,system-ui)}
-.dsh-automation-sidebar-button{display:flex;width:100%;height:36px;align-items:center;justify-content:flex-start;gap:9px;padding:0 10px;border:0;border-radius:8px;background:transparent;color:var(--dsw-alias-label-secondary);font:500 13px/18px var(--dsw-font-family,system-ui);cursor:pointer;white-space:nowrap}.dsh-automation-sidebar-button:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.dsh-automation-sidebar-button:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:2px}.dsh-automation-sidebar-button svg{width:18px;height:18px;flex:none}.dsh-automation-sidebar-action:not([data-wide]) .dsh-automation-sidebar-button{justify-content:center;padding:0}
-.dsh-automation-sidebar-feedback{display:block;padding:5px 8px;border:1px solid color-mix(in srgb,var(--dsw-alias-state-business-primary) 28%,var(--dsw-alias-border-l2));border-radius:7px;background:var(--dsw-alias-bg-layer-1);box-shadow:var(--dsw-shadow-lv1);color:var(--dsw-alias-label-secondary);font-size:10px;line-height:15px}.dsh-automation-sidebar-action:not([data-wide]) .dsh-automation-sidebar-feedback{position:fixed;z-index:20;bottom:16px;left:68px;width:max-content;max-width:260px}
+.dsh-automation-sidebar-entry,.dsh-automation-sidebar-feedback{box-sizing:border-box}
+.dsh-automation-sidebar-entry{display:flex;width:100%;height:32px;align-items:center;gap:8px;padding:0 12px;border:0;border-radius:8px;background:transparent;color:var(--dsw-alias-label-secondary);font-family:var(--dsw-font-family,system-ui);font-size:13px;line-height:18px;white-space:nowrap;text-align:left;cursor:pointer}
+.dsh-automation-sidebar-entry:hover{background:var(--dsw-specific-sidebar-nav-item-hover,var(--dsw-alias-interactive-bg-hover));color:var(--dsw-alias-label-primary)}
+.dsh-automation-sidebar-entry:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:2px}
+.dsh-automation-sidebar-entry svg{width:18px;height:18px;flex:none}
+.dsh-automation-sidebar-entry-label{overflow:hidden;text-overflow:ellipsis}
+[data-dsh-frame][data-sidebar-collapsed] .dsh-automation-sidebar-entry{justify-content:center;padding:0;width:100%}
+[data-dsh-frame][data-sidebar-collapsed] .dsh-automation-sidebar-entry-label{display:none}
+.dsh-automation-sidebar-feedback{display:block;position:fixed;z-index:20;max-width:260px;padding:5px 8px;border:1px solid color-mix(in srgb,var(--dsw-alias-state-business-primary) 28%,var(--dsw-alias-border-l2));border-radius:7px;background:var(--dsw-alias-bg-layer-1);box-shadow:var(--dsw-shadow-lv1);color:var(--dsw-alias-label-secondary);font-size:10px;line-height:15px}
 .dsh-automation-shell,.dsh-automation-shell *{box-sizing:border-box}
 .dsh-automation-shell{width:100%;height:100%;min-height:0;overflow:auto;overscroll-behavior:contain;padding:28px clamp(20px,3vw,48px) calc(var(--dsh-composer-height,152px) + 36px);background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);font-family:var(--dsw-font-family,system-ui);scrollbar-gutter:stable}
 .dsh-automation-header{display:flex;align-items:flex-start;justify-content:space-between;gap:24px;max-width:1440px;margin:0 auto 18px}
