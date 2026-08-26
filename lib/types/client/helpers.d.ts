@@ -53,3 +53,18 @@ export declare function deriveOverview(snapshot: AutomationSnapshot): OverviewSt
 export declare function formatRelativeTime(iso: string, now: Date, t: Translate): string;
 export declare function shortSessionId(sessionId: string): string;
 export declare function formatSchedule(schedule: AutomationSchedule, t: Translate): string;
+export type AutomationSortKey = 'created' | 'planned';
+export type AutomationSortDirection = 'asc' | 'desc';
+/** 工作区任务列表排序：计划时间 = nextRunAt，无计划的任务固定排最后。 */
+export declare function sortAutomations(items: readonly AutomationViewModel[], key: AutomationSortKey, direction: AutomationSortDirection): AutomationViewModel[];
+export interface SortPreferenceStorage {
+    getItem(key: string): string | null;
+    setItem(key: string, value: string): void;
+}
+export declare const WORKSPACE_SORT_DEFAULT_KEY = "dsh-automation.sort-default.workspace";
+/** 读取已保存的默认排序；缺失、损坏或无存储时返回 undefined，由调用方用自身默认值。 */
+export declare function readSortDefault(storage: SortPreferenceStorage | undefined, storageKey: string): {
+    readonly key: AutomationSortKey;
+    readonly direction: AutomationSortDirection;
+} | undefined;
+export declare function writeSortDefault(storage: SortPreferenceStorage, storageKey: string, key: AutomationSortKey, direction: AutomationSortDirection): void;

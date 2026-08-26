@@ -10,7 +10,11 @@ import {
   formatRelativeTime,
   formatSchedule,
   modelRouteChoices,
+  readSortDefault,
   reasoningEffortChoices,
+  sortAutomations,
+  writeSortDefault,
+  WORKSPACE_SORT_DEFAULT_KEY,
 } from '../src/client/helpers.js'
 import { en, zh } from '../src/client/locales.js'
 import { RecentRun } from '../src/client/AutomationView.js'
@@ -389,4 +393,53 @@ test('editing sends a revision-guarded update and refreshes the snapshot', async
     expectedRevision: 7,
     input,
   })
+})
+
+const sortItem = (id: string, name: string, createdAt: string, nextRunAt?: string): AutomationSnapshot['automations'][number] => ({
+  id,
+  revision: 1,
+  name,
+  prompt: 'Task.',
+  status: 'active',
+  schedule: { kind: 'daily', time: '09:00', timeZone: 'UTC' },
+  scheduleSummary: 'Daily · 09:00',
+  timeZone: 'UTC',
+  provider: null,
+  model: null,
+  reasoningEffort: null,
+  permission: 'read-only',
+  createdAt,
+  updatedAt: createdAt,
+  ...(nextRunAt === undefined ? {} : { nextRunAt }),
+})
+
+test('workspace automation sort supports created and planned time with a stable fallback', () => {
+  const items = [
+    sortItem('a', 'Alpha', '2026-08-10T00:00:00.000Z', '2026-09-01T00:00:00.000Z'),
+    sortItem('b', 'Beta', '2026-08-11T00:00:00.000Z', '2026-08-15T00:00:00.000Z'),
+    sortItem('c', 'Gamma', '2026-08-12T00:00:00.000Z'),
+  ]
+
+  assert.deepEqual(sortAutomations(items, 'created', 'desc').map(item => item.id), ['c', 'b', 'a'])
+  assert.deepEqual(sortAutomations(items, 'created', 'asc').map(item => item.id), ['a', 'b', 'c'])
+  // Planned ascending keeps the unpinned task last, regardless of direction.
+  assert.deepEqual(sortAutomations(items, 'planned', 'asc').map(item => item.id), ['b', 'a', 'c'])
+  assert.deepEqual(sortAutomations(items, 'planned', 'desc').map(item => item.id), ['a', 'b', 'c'])
+})
+
+test('sort default preferences survive storage roundtrips and reject corrupt values', () => {
+  const values = new Map<string, string>()
+  const storage = {
+    getItem: (key: string) => values.get(key) ?? null,
+    setItem: (key: string, value: string) => { values.set(key, value) },
+  }
+
+  assert.equal(readSortDefault(storage, WORKSPACE_SORT_DEFAULT_KEY), undefined)
+  writeSortDefault(storage, WORKSPACE_SORT_DEFAULT_KEY, 'planned', 'asc')
+  assert.deepEqual(readSortDefault(storage, WORKSPACE_SORT_DEFAULT_KEY), { key: 'planned', direction: 'asc' })
+
+  values.set(WORKSPACE_SORT_DEFAULT_KEY, '{broken')
+  assert.equal(readSortDefault(storage, WORKSPACE_SORT_DEFAULT_KEY), undefined)
+  values.set(WORKSPACE_SORT_DEFAULT_KEY, JSON.stringify({ key: 'title', direction: 'asc' }))
+  assert.equal(readSortDefault(storage, WORKSPACE_SORT_DEFAULT_KEY), undefined)
 })

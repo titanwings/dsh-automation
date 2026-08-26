@@ -327,3 +327,72 @@ export function formatSchedule(schedule: AutomationSchedule, t: Translate): stri
       })
   }
 }
+
+export type AutomationSortKey = 'created' | 'planned'
+export type AutomationSortDirection = 'asc' | 'desc'
+
+function sortStamp(value: string): number {
+  const parsed = Date.parse(value)
+  return Number.isFinite(parsed) ? parsed : 0
+}
+
+/** 工作区任务列表排序：计划时间 = nextRunAt，无计划的任务固定排最后。 */
+export function sortAutomations(
+  items: readonly AutomationViewModel[],
+  key: AutomationSortKey,
+  direction: AutomationSortDirection,
+): AutomationViewModel[] {
+  const factor = direction === 'asc' ? 1 : -1
+  return items.slice().sort((left, right) => {
+    if (key === 'planned') {
+      const leftNext = left.nextRunAt
+      const rightNext = right.nextRunAt
+      if (leftNext === undefined || rightNext === undefined) {
+        if (leftNext === undefined && rightNext === undefined) {
+          return left.name.localeCompare(right.name) || left.id.localeCompare(right.id)
+        }
+        return leftNext === undefined ? 1 : -1
+      }
+      const primary = sortStamp(leftNext) - sortStamp(rightNext)
+      if (primary !== 0) return primary * factor
+      return left.name.localeCompare(right.name) || left.id.localeCompare(right.id)
+    }
+    const primary = sortStamp(left.createdAt) - sortStamp(right.createdAt)
+    if (primary !== 0) return primary * factor
+    return left.id.localeCompare(right.id)
+  })
+}
+
+export interface SortPreferenceStorage {
+  getItem(key: string): string | null
+  setItem(key: string, value: string): void
+}
+
+export const WORKSPACE_SORT_DEFAULT_KEY = 'dsh-automation.sort-default.workspace'
+
+/** 读取已保存的默认排序；缺失、损坏或无存储时返回 undefined，由调用方用自身默认值。 */
+export function readSortDefault(
+  storage: SortPreferenceStorage | undefined,
+  storageKey: string,
+): { readonly key: AutomationSortKey; readonly direction: AutomationSortDirection } | undefined {
+  if (storage === undefined) return undefined
+  try {
+    const raw = storage.getItem(storageKey)
+    if (raw === null) return undefined
+    const parsed = JSON.parse(raw) as { readonly key?: unknown; readonly direction?: unknown }
+    if (parsed.key !== 'created' && parsed.key !== 'planned') return undefined
+    if (parsed.direction !== 'asc' && parsed.direction !== 'desc') return undefined
+    return { key: parsed.key, direction: parsed.direction }
+  } catch {
+    return undefined
+  }
+}
+
+export function writeSortDefault(
+  storage: SortPreferenceStorage,
+  storageKey: string,
+  key: AutomationSortKey,
+  direction: AutomationSortDirection,
+): void {
+  storage.setItem(storageKey, JSON.stringify({ key, direction }))
+}
