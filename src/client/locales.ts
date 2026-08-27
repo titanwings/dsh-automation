@@ -3,6 +3,7 @@ export const NS = 'dsh-automation'
 export const en = {
   tab: 'Automations',
   'sidebar.open': 'Open Automations',
+  'sidebar.tooltip': 'New automation',
   'sidebar.unavailable': 'Start a conversation before opening Automations.',
   'header.eyebrow': 'Autonomous coding work',
   'header.title': 'Automations',
@@ -143,6 +144,7 @@ export type AutomationLocaleKey = keyof typeof en
 export const zh: Record<AutomationLocaleKey, string> = {
   tab: '自动化',
   'sidebar.open': '打开自动化',
+  'sidebar.tooltip': '新建自动化',
   'sidebar.unavailable': '请先开始一个对话，再打开自动化。',
   'header.eyebrow': '自主编码任务',
   'header.title': '自动化',

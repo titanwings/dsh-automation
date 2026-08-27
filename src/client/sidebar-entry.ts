@@ -36,8 +36,8 @@ export function installAutomationSidebarEntry(t: Translate): () => void {
   entry.type = 'button'
   entry.setAttribute(ENTRY_ATTR, '')
   entry.className = 'dsh-automation-sidebar-entry'
-  entry.setAttribute('aria-label', t('sidebar.open'))
-  entry.title = t('sidebar.open')
+  entry.setAttribute('aria-label', t('sidebar.tooltip'))
+  entry.setAttribute('data-tooltip', t('sidebar.tooltip'))
   entry.innerHTML = ENTRY_SVG
   const label = document.createElement('span')
   label.className = 'dsh-automation-sidebar-entry-label'
