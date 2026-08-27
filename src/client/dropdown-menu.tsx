@@ -56,8 +56,8 @@ export function DropdownMenu({
       if (rect === undefined) return
       const height = menuRef.current?.offsetHeight ?? 220
       const margin = 8
-      let top = rect.bottom + 6
-      if (top + height > window.innerHeight - margin) top = Math.max(margin, rect.top - height - 6)
+      let top = rect.bottom + 2
+      if (top + height > window.innerHeight - margin) top = Math.max(margin, rect.top - height - 2)
       const right = Math.max(margin, window.innerWidth - rect.right)
       setMenuStyle(current => current.top === top && current.right === right ? current : { position: 'fixed', top, right })
     }
@@ -96,7 +96,7 @@ export function DropdownMenu({
     <div className={`dsh-automation-dropdown${className === undefined ? '' : ` ${className}`}`} ref={root}>
       <button type="button" className={`dsh-automation-dropdown-btn${open ? ' is-open' : ''}`} aria-label={ariaLabel} aria-expanded={open} onClick={() => setOpen(value => !value)}>
         <span className="dsh-automation-dropdown-label">{selectedLabel}</span>
-        <ChevronIcon width={10} height={10} className="dsh-automation-dropdown-chevron" />
+        <ChevronIcon width={16} height={16} className="dsh-automation-dropdown-chevron" />
       </button>
       {menu}
     </div>
