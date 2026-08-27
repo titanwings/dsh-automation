@@ -37,12 +37,40 @@ export function installAutomationSidebarEntry(t: Translate): () => void {
   entry.setAttribute(ENTRY_ATTR, '')
   entry.className = 'dsh-automation-sidebar-entry'
   entry.setAttribute('aria-label', t('sidebar.tooltip'))
-  entry.setAttribute('data-tooltip', t('sidebar.tooltip'))
   entry.innerHTML = ENTRY_SVG
   const label = document.createElement('span')
   label.className = 'dsh-automation-sidebar-entry-label'
   label.textContent = t('tab')
   entry.append(label)
+
+  const TOOLTIP_DELAY_MS = 500
+  let tooltip: HTMLDivElement | undefined
+  let tooltipTimer: ReturnType<typeof setTimeout> | undefined
+  const hideTooltip = (): void => {
+    if (tooltipTimer !== undefined) clearTimeout(tooltipTimer)
+    tooltipTimer = undefined
+    tooltip?.remove()
+    tooltip = undefined
+  }
+  const showTooltip = (): void => {
+    if (tooltip !== undefined || !document.querySelector('[data-sidebar-collapsed]')) return
+    const rect = entry.getBoundingClientRect()
+    tooltip = document.createElement('div')
+    tooltip.className = 'dsh-automation-sidebar-tooltip'
+    tooltip.textContent = t('sidebar.tooltip')
+    document.body.append(tooltip)
+    tooltip.style.left = `${rect.right + 8}px`
+    tooltip.style.top = `${rect.top + rect.height / 2}px`
+  }
+  const onTooltipEnter = (): void => {
+    hideTooltip()
+    tooltipTimer = setTimeout(showTooltip, TOOLTIP_DELAY_MS)
+  }
+  const onTooltipLeave = (): void => hideTooltip()
+  entry.addEventListener('mouseenter', onTooltipEnter)
+  entry.addEventListener('mouseleave', onTooltipLeave)
+  entry.addEventListener('focus', onTooltipEnter)
+  entry.addEventListener('blur', onTooltipLeave)
 
   let notice: HTMLSpanElement | undefined
   const positionNotice = (): void => {
@@ -97,6 +125,7 @@ export function installAutomationSidebarEntry(t: Translate): () => void {
   return () => {
     observer.disconnect()
     window.removeEventListener('resize', positionNotice)
+    hideTooltip()
     entry.remove()
     hideNotice()
   }
