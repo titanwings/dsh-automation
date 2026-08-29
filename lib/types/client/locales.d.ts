@@ -5,8 +5,8 @@ export declare const en: {
     readonly 'sidebar.tooltip': "New automation";
     readonly 'sidebar.unavailable': "Start a conversation before opening Automations.";
     readonly 'header.eyebrow': "Autonomous coding work";
-    readonly 'header.title': "Automations";
-    readonly 'header.subtitle': "Schedule fresh, auditable agent runs for this workspace.";
+    readonly 'header.title': "Automation tasks";
+    readonly 'header.subtitle': "Schedule independent, auditable Agent automations for this workspace";
     readonly 'header.create': "New automation";
     readonly 'header.closeCreate': "Close form";
     readonly 'scope.workspace': "Workspace";
@@ -15,6 +15,7 @@ export declare const en: {
     readonly 'stats.active': "Active";
     readonly 'stats.next': "Next run";
     readonly 'stats.attention': "Needs attention";
+    readonly 'stats.paused': "Paused";
     readonly 'stats.noneScheduled': "Not scheduled";
     readonly 'stats.noAttention': "All clear";
     readonly 'section.automations': "Workspace automations";
@@ -22,6 +23,17 @@ export declare const en: {
     readonly 'section.runs': "Recent runs";
     readonly 'section.runsHint': "Latest execution state across this workspace.";
     readonly 'section.refresh': "Refresh";
+    readonly 'view.todayTasks': "Today";
+    readonly 'view.allTasks': "All tasks";
+    readonly 'view.list': "List";
+    readonly 'view.week': "Week";
+    readonly 'view.month': "Month";
+    readonly 'view.today': "Today";
+    readonly 'view.noToday': "No automations are scheduled for today.";
+    readonly 'calendar.weekTitle': "Week of {year}/{month}/{day}";
+    readonly 'calendar.monthTitle': "{year}/{month}";
+    readonly 'calendar.taskCount': "{count} tasks";
+    readonly 'calendar.emptyDay': "No automations are scheduled for this day.";
     readonly 'sort.by': "Sort by";
     readonly 'sort.created.desc': "Created · Newest";
     readonly 'sort.created.asc': "Created · Oldest";

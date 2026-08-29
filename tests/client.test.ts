@@ -3,16 +3,21 @@ import test from 'node:test'
 import {
   AutomationFormError,
   buildCreateInput,
+  buildMonthCalendarGrid,
   buildUpdateInput,
+  buildWeekCalendarDays,
+  countAutomationsOnDay,
   defaultFormState,
   deriveOverview,
   formStateFromAutomation,
   formatRelativeTime,
   formatSchedule,
+  isSameLocalDay,
   modelRouteChoices,
   readSortDefault,
   reasoningEffortChoices,
   sortAutomations,
+  startOfLocalWeek,
   writeSortDefault,
   WORKSPACE_SORT_DEFAULT_KEY,
 } from '../src/client/helpers.js'
@@ -272,6 +277,30 @@ test('deriveOverview counts active definitions and unread failures', () => {
     attention: 1,
     nextRunAt: '2026-08-13T09:00:00.000Z',
   })
+})
+
+test('calendar helpers build Monday-first week and month grids', () => {
+  const cursor = new Date(2026, 7, 27)
+  const week = buildWeekCalendarDays(cursor)
+  assert.equal(week.length, 7)
+  assert.equal(week[0]?.getDay(), 1)
+  assert.equal(week[6]?.getDay(), 0)
+  assert.equal(isSameLocalDay(startOfLocalWeek(cursor), new Date(2026, 7, 24)), true)
+
+  const month = buildMonthCalendarGrid(cursor)
+  assert.equal(month.length, 42)
+  assert.equal(month[0]?.getDay(), 1)
+
+  const item: AutomationSnapshot['automations'][number] = {
+    id: 'calendar-a', revision: 1, name: 'Calendar A', prompt: 'P', status: 'active',
+    schedule: { kind: 'once', at: '2026-08-27T00:00:00.000Z', timeZone: 'UTC' },
+    scheduleSummary: 'Once', timeZone: 'UTC', provider: null, model: null,
+    reasoningEffort: null, permission: 'read-only',
+    nextRunAt: new Date(2026, 7, 27, 9).toISOString(),
+    createdAt: '2026-08-01T00:00:00.000Z', updatedAt: '2026-08-01T00:00:00.000Z',
+  }
+  assert.equal(countAutomationsOnDay([item], new Date(2026, 7, 27)), 1)
+  assert.equal(countAutomationsOnDay([item], new Date(2026, 7, 28)), 0)
 })
 
 test('formatRelativeTime handles past and future windows', () => {

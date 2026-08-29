@@ -49,6 +49,17 @@ export interface OverviewStats {
     readonly attention: number;
     readonly nextRunAt?: string;
 }
+export declare function startOfLocalDay(date: Date): Date;
+/** 周一作为一周的开始，与 dsh-personal-workbench 的周视图一致。 */
+export declare function startOfLocalWeek(date: Date): Date;
+export declare function addLocalDays(date: Date, days: number): Date;
+export declare function isSameLocalDay(left: Date, right: Date): boolean;
+/** 统计 nextRunAt 落在某个本地日期的自动化任务数量。 */
+export declare function countAutomationsOnDay(automations: readonly AutomationViewModel[], day: Date): number;
+/** 生成周视图的 7 个本地日期（周一起始）。 */
+export declare function buildWeekCalendarDays(cursor: Date): readonly Date[];
+/** 生成月视图的 6x7 日期网格，覆盖该月所在的所有周。 */
+export declare function buildMonthCalendarGrid(cursor: Date): readonly Date[];
 export declare function deriveOverview(snapshot: AutomationSnapshot): OverviewStats;
 export declare function formatRelativeTime(iso: string, now: Date, t: Translate): string;
 export declare function shortSessionId(sessionId: string): string;
