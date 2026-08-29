@@ -49,6 +49,8 @@ export declare const en: {
     readonly 'empty.title': "Put recurring coding work on autopilot";
     readonly 'empty.body': "Define the task goal, run time and permission boundary; every run opens a new conversation in the workspace";
     readonly 'empty.action': "Create your first automation";
+    readonly 'empty.todayNone': "No automations scheduled today";
+    readonly 'empty.dayNone': "No automations scheduled for this day";
     readonly 'runs.empty': "No runs yet. Trigger an automation now or wait for its schedule.";
     readonly 'form.title': "Create an automation";
     readonly 'form.subtitle': "Write a self-contained prompt: scheduled runs do not inherit this conversation.";

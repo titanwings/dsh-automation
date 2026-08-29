@@ -844,11 +844,8 @@ export function AutomationView({
           ) : visibleAutomations.length === 0 ? (
             <div className="dsh-automation-empty">
               <span><CalendarIcon /></span>
-              <h3>{taskView === 'today' ? t('view.todayTasks') : t('calendar.emptyDay')}</h3>
-              <p>{taskView === 'today' ? t('view.noToday') : t('calendar.emptyDay')}</p>
-              {taskView === 'today'
-                ? <button className="dsh-automation-button dsh-automation-button--ghost" type="button" onClick={() => setTaskView('all')}>{t('view.allTasks')}</button>
-                : <button className="dsh-automation-button dsh-automation-button--ghost" type="button" onClick={() => selectRange('list')}>{t('view.list')}</button>}
+              <h3>{taskView === 'today' ? t('empty.todayNone') : t('empty.dayNone')}</h3>
+              <button className="dsh-automation-button dsh-automation-button--primary" type="button" onClick={() => setShowCreate(true)}><PlusIcon />{t('header.create')}</button>
             </div>
           ) : (
             <div className="dsh-automation-card-list">

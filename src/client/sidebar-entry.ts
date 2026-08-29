@@ -8,7 +8,7 @@ import { activateAutomationTab } from './navigation.js'
 
 export const ENTRY_ATTR = 'data-dsh-automation-entry'
 const NOTICE_ID = 'dsh-automation-sidebar-unavailable'
-const SIBLING_ENTRY_SELECTOR = '[data-dsh-taskboard-entry], [data-dsh-ssh-entry]'
+
 
 const ENTRY_SVG = '<svg aria-hidden="true" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.25"/><path d="M12 7.7v4.7l3.15 1.85"/><path d="M5.6 4.9 4.2 6.3M18.4 4.9l1.4 1.4"/></svg>'
 
@@ -117,15 +117,13 @@ export function installAutomationSidebarEntry(t: Translate): () => void {
     if (rootEl === undefined) return
     const button = newSessionButton(rootEl)
     if (button === undefined) return
-    if (entry.parentElement !== rootEl) {
-      const row = button.closest('[class*="logoRow"]')
-      const base = row !== null && row.parentElement === rootEl ? row : button
-      // Keep a stable order next to sibling plugins that inject the same way.
-      const sibling = Array.from(rootEl.children).find((child): child is HTMLElement => (
-        child instanceof HTMLElement && child.matches(SIBLING_ENTRY_SELECTOR)
-      ))
-      rootEl.insertBefore(entry, sibling ?? base.nextElementSibling)
-    }
+    const row = button.closest<HTMLElement>('[class*="logoRow"]')
+    const base = row !== null && row.parentElement === rootEl ? row : button
+    // Always pin directly below the new-chat row: re-insert after the base
+    // whenever any other plugin moves, removes or prepends entries.
+    const anchor = base.nextElementSibling
+    if (entry === anchor) return
+    rootEl.insertBefore(entry, anchor)
   }
   placeEntry()
   const observer = new MutationObserver(placeEntry)
