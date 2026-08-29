@@ -11,9 +11,15 @@ import {
   formStateFromAutomation,
   modelRouteChoices,
   reasoningEffortChoices,
+  readSortDefault,
   shortSessionId,
+  sortAutomations,
+  WORKSPACE_SORT_DEFAULT_KEY,
   type AutomationFormState,
+  type AutomationSortDirection,
+  type AutomationSortKey,
   type ScheduleKind,
+  type SortPreferenceStorage,
 } from './helpers.js'
 import {
   AlertIcon,
@@ -36,9 +42,11 @@ import type {
   ModelCatalog,
   UpdateAutomationInput,
 } from './protocol.js'
+import { SortMenu } from './sort-menu.js'
 
 const POLL_INTERVAL_MS = 15_000
 const WEEKDAYS = [1, 2, 3, 4, 5, 6, 7] as const
+const SORT_STORAGE: SortPreferenceStorage | undefined = typeof window === 'undefined' ? undefined : window.localStorage
 
 type BusyAction = 'create' | 'update' | 'pause' | 'resume' | 'run' | 'read' | 'delete'
 
@@ -514,6 +522,8 @@ export function AutomationView({
   const [busyKey, setBusyKey] = useState<string>()
   const [actionError, setActionError] = useState<string>()
   const [confirmDeleteId, setConfirmDeleteId] = useState<string>()
+  const [sortKey, setSortKey] = useState<AutomationSortKey>(() => readSortDefault(SORT_STORAGE, WORKSPACE_SORT_DEFAULT_KEY)?.key ?? 'created')
+  const [sortDirection, setSortDirection] = useState<AutomationSortDirection>(() => readSortDefault(SORT_STORAGE, WORKSPACE_SORT_DEFAULT_KEY)?.direction ?? 'desc')
 
   useEffect(() => {
     void refresh().catch(() => undefined)
@@ -524,6 +534,9 @@ export function AutomationView({
   const snapshot = state.snapshot
   const stats = useMemo(() => snapshot === undefined ? undefined : deriveOverview(snapshot), [snapshot])
   const now = useMemo(() => new Date(snapshot?.serverNow ?? Date.now()), [snapshot?.serverNow])
+  const automations = useMemo(() => (
+    snapshot === undefined ? [] : sortAutomations(snapshot.automations, sortKey, sortDirection)
+  ), [snapshot, sortDirection, sortKey])
 
   const perform = async (key: string, action: () => Promise<void>): Promise<void> => {
     setBusyKey(key)
@@ -660,9 +673,22 @@ export function AutomationView({
         <section className="dsh-automation-main-column">
           <div className="dsh-automation-section-heading">
             <div><h2>{t('section.automations')}</h2><p>{t('section.automationsHint')}</p></div>
-            <button className="dsh-automation-icon-button" type="button" aria-label={t('section.refresh')} title={t('section.refresh')} onClick={() => { void refresh().catch(() => undefined) }} disabled={state.phase === 'loading'}><RefreshIcon /></button>
+            <div className="dsh-automation-section-actions">
+              <SortMenu
+                t={t}
+                {...(SORT_STORAGE === undefined ? {} : { storage: SORT_STORAGE })}
+                storageKey={WORKSPACE_SORT_DEFAULT_KEY}
+                sortKey={sortKey}
+                sortDirection={sortDirection}
+                onSelect={(key, direction) => {
+                  setSortKey(key)
+                  setSortDirection(direction)
+                }}
+              />
+              <button className="dsh-automation-icon-button" type="button" aria-label={t('section.refresh')} title={t('section.refresh')} onClick={() => { void refresh().catch(() => undefined) }} disabled={state.phase === 'loading'}><RefreshIcon /></button>
+            </div>
           </div>
-          {snapshot.automations.length === 0 ? (
+          {automations.length === 0 ? (
             <div className="dsh-automation-empty">
               <span><AutomationIcon /></span>
               <h3>{t('empty.title')}</h3>
@@ -671,7 +697,7 @@ export function AutomationView({
             </div>
           ) : (
             <div className="dsh-automation-card-list">
-              {snapshot.automations.map(automation => (
+              {automations.map(automation => (
                 <AutomationCard
                   key={automation.id}
                   automation={automation}

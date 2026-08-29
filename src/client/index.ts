@@ -1,8 +1,8 @@
 import { AutomationView } from './AutomationView.js'
-import { AutomationSidebarAction } from './AutomationSidebarAction.js'
 import type { ClientContext } from './contracts.js'
 import { en, NS, zh } from './locales.js'
 import { createAutomationRuntime, loadModelCatalog } from './runtime.js'
+import { installAutomationSidebarEntry } from './sidebar-entry.js'
 import { installStyles } from './styles.js'
 
 export const name = 'dsh-automation-client'
@@ -18,15 +18,9 @@ export function apply(ctx: ClientContext): void {
   // observable identity per session for the lifetime of this plugin fiber.
   const runtimes = new Map<string, ReturnType<typeof createAutomationRuntime>>()
   ctx.effect(() => () => { runtimes.clear() }, 'dsh-automation: session runtimes')
-  ctx.slots.inject('sidebar.footer.action', () => ctx.slots.register({
-    name: 'sidebar.footer.action',
-    id: 'automation',
-    order: 40,
-    locale: NS,
-    inject: () => ({
-      automationTabs: () => document.querySelectorAll<HTMLElement>('[role="tab"]'),
-    }),
-  }, AutomationSidebarAction))
+  // The homepage entry lives below the new-chat button (no official slot
+  // exists there); it is a DOM-managed projection of the conversation view.
+  ctx.effect(() => installAutomationSidebarEntry(t), 'dsh-automation: sidebar entry')
   ctx.slots.inject('conversation.view', () => ctx.slots.register({
     name: 'conversation.view',
     id: 'automation',

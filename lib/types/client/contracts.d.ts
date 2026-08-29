@@ -1,6 +1,5 @@
 import type { ComponentType } from 'react';
 import type { AutomationLocaleKey } from './locales.js';
-import type { AutomationTab } from './navigation.js';
 import type { ModelCatalog, RpcResult } from './protocol.js';
 import type { AutomationClientState, AutomationRuntime } from './runtime.js';
 export type Translate = (key: AutomationLocaleKey, params?: Record<string, unknown>) => string;
@@ -19,11 +18,6 @@ export interface AutomationViewProps {
     readonly markRunRead: AutomationRuntime['markRunRead'];
     readonly loadModelCatalog: () => Promise<ModelCatalog>;
     readonly openSession: (runId: string, sessionId: string) => Promise<void>;
-}
-export interface AutomationSidebarActionProps {
-    readonly wide: boolean;
-    readonly t: Translate;
-    readonly automationTabs: () => Iterable<AutomationTab>;
 }
 export interface ClientRpc {
     call(channel: string, endpoint: string, payload: unknown, signal?: AbortSignal): Promise<unknown>;
@@ -53,7 +47,7 @@ export interface ClientContext {
         bind(namespace: string): Translate;
     };
     slots: {
-        inject(name: 'conversation.view' | 'sidebar.footer.action', register: () => void | (() => void)): void;
+        inject(name: 'conversation.view', register: () => void | (() => void)): void;
         register(options: {
             readonly name: 'conversation.view';
             readonly id: string;
@@ -74,14 +68,5 @@ export interface ClientContext {
                 readonly openSession: (runId: string, sessionId: string) => Promise<void>;
             };
         }, component: ComponentType<AutomationViewProps>): () => void;
-        register(options: {
-            readonly name: 'sidebar.footer.action';
-            readonly id: string;
-            readonly order: number;
-            readonly locale: string;
-            readonly inject: () => {
-                readonly automationTabs: () => Iterable<AutomationTab>;
-            };
-        }, component: ComponentType<AutomationSidebarActionProps>): () => void;
     };
 }

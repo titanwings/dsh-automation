@@ -2,6 +2,7 @@ export declare const NS = "dsh-automation";
 export declare const en: {
     readonly tab: "Automations";
     readonly 'sidebar.open': "Open Automations";
+    readonly 'sidebar.tooltip': "New automation";
     readonly 'sidebar.unavailable': "Start a conversation before opening Automations.";
     readonly 'header.eyebrow': "Autonomous coding work";
     readonly 'header.title': "Automations";
@@ -21,6 +22,12 @@ export declare const en: {
     readonly 'section.runs': "Recent runs";
     readonly 'section.runsHint': "Latest execution state across this workspace.";
     readonly 'section.refresh': "Refresh";
+    readonly 'sort.by': "Sort by";
+    readonly 'sort.created.desc': "Created · Newest";
+    readonly 'sort.created.asc': "Created · Oldest";
+    readonly 'sort.planned.asc': "Planned · Soonest";
+    readonly 'sort.planned.desc': "Planned · Latest";
+    readonly 'sort.default.saved': "Default";
     readonly 'empty.title': "Put recurring coding work on autopilot";
     readonly 'empty.body': "Create a focused task with an explicit schedule and permission boundary. Every run starts in a fresh session.";
     readonly 'empty.action': "Create your first automation";
