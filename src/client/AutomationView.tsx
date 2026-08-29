@@ -817,16 +817,23 @@ export function AutomationView({
                     </div>
                   ) : (
                     <div className="dsh-automation-cal-month">
-                      {monthDays.map(day => {
-                        const count = countAutomationsOnDay(automations, day)
-                        const otherMonth = day.getMonth() !== calendarAnchor.getMonth()
-                        return (
-                          <button key={day.toISOString()} type="button" className={`dsh-automation-cal-month-day${otherMonth ? ' is-other' : ''}${isSameLocalDay(day, todayStart) ? ' is-today' : ''}${isSameLocalDay(day, pickedDate) ? ' is-selected' : ''}`} onClick={() => selectDay(day)}>
-                            <span className="dsh-automation-cal-month-date">{day.getDate()}</span>
-                            {count > 0 && <span className="dsh-automation-cal-count dsh-automation-cal-count--dot">{count}</span>}
-                          </button>
-                        )
-                      })}
+                      <div className="dsh-automation-cal-month-weekdays">
+                        {WEEKDAYS.map(day => (
+                          <span key={day}>{t(`calendar.dow.${day}` as AutomationLocaleKey)}</span>
+                        ))}
+                      </div>
+                      <div className="dsh-automation-cal-month-grid">
+                        {monthDays.map(day => {
+                          const count = countAutomationsOnDay(automations, day)
+                          const otherMonth = day.getMonth() !== calendarAnchor.getMonth()
+                          return (
+                            <button key={day.toISOString()} type="button" className={`dsh-automation-cal-month-day${otherMonth ? ' is-other' : ''}${isSameLocalDay(day, todayStart) ? ' is-today' : ''}${isSameLocalDay(day, pickedDate) ? ' is-selected' : ''}`} onClick={() => selectDay(day)}>
+                              <span className="dsh-automation-cal-month-date">{day.getDate()}</span>
+                              {count > 0 && <span className="dsh-automation-cal-count">{t('calendar.taskCount', { count })}</span>}
+                            </button>
+                          )
+                        })}
+                      </div>
                     </div>
                   )}
                 </div>

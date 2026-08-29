@@ -35,6 +35,13 @@ export declare const en: {
     readonly 'calendar.year': "Year";
     readonly 'calendar.month': "Month";
     readonly 'calendar.taskCount': "{count} tasks";
+    readonly 'calendar.dow.1': "Mon";
+    readonly 'calendar.dow.2': "Tue";
+    readonly 'calendar.dow.3': "Wed";
+    readonly 'calendar.dow.4': "Thu";
+    readonly 'calendar.dow.5': "Fri";
+    readonly 'calendar.dow.6': "Sat";
+    readonly 'calendar.dow.7': "Sun";
     readonly 'calendar.emptyDay': "No automations are scheduled for this day.";
     readonly 'sort.by': "Sort by";
     readonly 'sort.planned': "Planned";
