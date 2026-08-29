@@ -19,7 +19,7 @@ export function PlusIcon(props: IconProps): JSX.Element {
 }
 
 export function RefreshIcon(props: IconProps): JSX.Element {
-  return <IconFrame {...props}><path d="M19 7v5h-5" /><path d="M18.1 15.5A7.5 7.5 0 1 1 19 12" /></IconFrame>
+  return <IconFrame {...props}><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8" /><path d="M21 3v5h-5" /></IconFrame>
 }
 
 export function PlayIcon(props: IconProps): JSX.Element {

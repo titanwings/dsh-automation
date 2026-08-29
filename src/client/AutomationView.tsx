@@ -19,6 +19,7 @@ import {
   readSortDefault,
   shortSessionId,
   sortAutomations,
+  writeSortDefault,
   startOfLocalDay,
   startOfLocalWeek,
   WORKSPACE_SORT_DEFAULT_KEY,
@@ -49,7 +50,6 @@ import type {
   ModelCatalog,
   UpdateAutomationInput,
 } from './protocol.js'
-import { SortMenu } from './sort-menu.js'
 
 const POLL_INTERVAL_MS = 15_000
 const WEEKDAYS = [1, 2, 3, 4, 5, 6, 7] as const
@@ -533,7 +533,7 @@ export function AutomationView({
   const [confirmDeleteId, setConfirmDeleteId] = useState<string>()
   const [sortKey, setSortKey] = useState<AutomationSortKey>(() => readSortDefault(SORT_STORAGE, WORKSPACE_SORT_DEFAULT_KEY)?.key ?? 'created')
   const [sortDirection, setSortDirection] = useState<AutomationSortDirection>(() => readSortDefault(SORT_STORAGE, WORKSPACE_SORT_DEFAULT_KEY)?.direction ?? 'desc')
-  const [taskView, setTaskView] = useState<TaskView>('all')
+  const [taskView, setTaskView] = useState<TaskView>('today')
   const [rangeView, setRangeView] = useState<CalendarRangeView>('list')
   const [calendarCursor, setCalendarCursor] = useState<Date>()
   const [selectedDate, setSelectedDate] = useState<Date>()
@@ -558,6 +558,9 @@ export function AutomationView({
   const pickedDate = selectedDate ?? todayStart
   const weekDays = useMemo(() => buildWeekCalendarDays(calendarAnchor), [calendarAnchor])
   const monthDays = useMemo(() => buildMonthCalendarGrid(calendarAnchor), [calendarAnchor])
+  const calendarTitleDate = rangeView === 'week' ? weekDays[3] ?? calendarAnchor : calendarAnchor
+  const calendarTitleYear = calendarTitleDate.getFullYear()
+  const calendarTitleMonth = calendarTitleDate.getMonth() + 1
   const visibleAutomations = useMemo(() => {
     if (taskView === 'today') return todayAutomations
     if (rangeView === 'list') return automations
@@ -586,9 +589,24 @@ export function AutomationView({
   const selectDay = (day: Date): void => {
     setSelectedDate(startOfLocalDay(day))
   }
+  const changeCalendarYear = (year: number): void => {
+    const base = new Date(year, calendarTitleMonth - 1, 1)
+    setCalendarCursor(rangeView === 'week' ? startOfLocalWeek(base) : base)
+    setSelectedDate(startOfLocalDay(base))
+  }
+  const changeCalendarMonth = (month: number): void => {
+    const base = new Date(calendarTitleYear, month - 1, 1)
+    setCalendarCursor(rangeView === 'week' ? startOfLocalWeek(base) : base)
+    setSelectedDate(startOfLocalDay(base))
+  }
   const toggleCreate = (): void => {
     setEditingAutomation(undefined)
     setShowCreate(value => !value)
+  }
+  const selectSort = (key: AutomationSortKey, direction: AutomationSortDirection): void => {
+    setSortKey(key)
+    setSortDirection(direction)
+    if (SORT_STORAGE !== undefined) writeSortDefault(SORT_STORAGE, WORKSPACE_SORT_DEFAULT_KEY, key, direction)
   }
 
   const perform = async (key: string, action: () => Promise<void>): Promise<void> => {
@@ -673,9 +691,17 @@ export function AutomationView({
               <span className="dsh-automation-header-divider" aria-hidden="true" />
               <p>{t('header.subtitle')}</p>
             </div>
-            <button className="dsh-automation-button dsh-automation-button--primary" type="button" onClick={toggleCreate}>
-              {showCreate ? <><PauseIcon />{t('header.closeCreate')}</> : <><PlusIcon width={20} height={20} />{t('header.create')}</>}
-            </button>
+            <span className="dsh-automation-header-meta-divider" aria-hidden="true" />
+            <div className="dsh-automation-header-meta">
+              <span>
+                <strong>{t('scope.workspace')}</strong>
+                {snapshot.scope.workspaceName ?? snapshot.scope.workspaceId ?? '—'}
+              </span>
+              <span>
+                <strong>{t('scope.folder')}</strong>
+                <code title={snapshot.scope.cwd}>{snapshot.scope.cwd}</code>
+              </span>
+            </div>
           </div>
         </div>
       </header>
@@ -711,99 +737,102 @@ export function AutomationView({
       <div className="dsh-automation-content">
         <section className="dsh-automation-main-column">
           <div className="dsh-automation-status-toolbar">
-            <div className="dsh-automation-view-switch" role="group">
-              <button type="button" className={taskView === 'today' ? 'is-selected' : ''} aria-pressed={taskView === 'today'} onClick={() => setTaskView('today')}>
-                <span>{t('view.todayTasks')}</span><b>{todayAutomations.length}</b>
-              </button>
-              <button type="button" className={taskView === 'all' ? 'is-selected' : ''} aria-pressed={taskView === 'all'} onClick={() => setTaskView('all')}>
-                <span>{t('view.allTasks')}</span><b>{automations.length}</b>
-              </button>
-            </div>
-            {taskView === 'all' && (
-              <div className="dsh-automation-range-switch" role="group" aria-label={t('view.allTasks')}>
-                {(['list', 'week', 'month'] as const).map(range => (
-                  <button key={range} type="button" className={rangeView === range ? 'is-selected' : ''} aria-pressed={rangeView === range} onClick={() => selectRange(range)}>
-                    {t(`view.${range}`)}
-                  </button>
-                ))}
+            <div className="dsh-automation-toolbar-row">
+              <div className="dsh-automation-view-switch" role="group">
+                <button type="button" className={taskView === 'today' ? 'is-selected' : ''} aria-pressed={taskView === 'today'} onClick={() => setTaskView('today')}>
+                  <span>{t('view.todayTasks')}</span><b>{todayAutomations.length}</b>
+                </button>
+                <button type="button" className={taskView === 'all' ? 'is-selected' : ''} aria-pressed={taskView === 'all'} onClick={() => setTaskView('all')}>
+                  <span>{t('view.allTasks')}</span><b>{automations.length}</b>
+                </button>
               </div>
-            )}
-            <div className="dsh-automation-status-summary">
-              <span><b>{stats?.active ?? 0}</b>{t('stats.active')}</span>
-              <span><b>{(stats?.total ?? 0) - (stats?.active ?? 0)}</b>{t('stats.paused')}</span>
-            </div>
-            <span className="dsh-automation-next-run">
-              <b>{t('stats.next')}</b>
-              {stats?.nextRunAt === undefined ? t('stats.noneScheduled') : formatRelativeTime(stats.nextRunAt, now, t)}
-            </span>
-          </div>
-
-          <div className="dsh-automation-section-heading dsh-automation-module-head">
-            <div className="dsh-automation-section-title">
-              <h2>{t('section.automations')}</h2>
-              <p className="dsh-automation-section-scope">
-                <span><strong>{t('scope.workspace')}</strong>{snapshot.scope.workspaceName ?? snapshot.scope.workspaceId ?? '—'}</span>
-                <span><strong>{t('scope.folder')}</strong><code title={snapshot.scope.cwd}>{snapshot.scope.cwd}</code></span>
-              </p>
-              <p className="dsh-automation-section-hint">{t('section.automationsHint')}</p>
-            </div>
-            <div className="dsh-automation-section-actions">
-              <SortMenu
-                t={t}
-                {...(SORT_STORAGE === undefined ? {} : { storage: SORT_STORAGE })}
-                storageKey={WORKSPACE_SORT_DEFAULT_KEY}
-                sortKey={sortKey}
-                sortDirection={sortDirection}
-                onSelect={(key, direction) => {
-                  setSortKey(key)
-                  setSortDirection(direction)
-                }}
-              />
-              <button className="dsh-automation-icon-button" type="button" aria-label={t('section.refresh')} title={t('section.refresh')} onClick={() => { void refresh().catch(() => undefined) }} disabled={state.phase === 'loading'}><RefreshIcon /></button>
-            </div>
-          </div>
-          {taskView === 'all' && rangeView !== 'list' && (
-            <div className="dsh-automation-calendar">
-              <div className="dsh-automation-cal-nav">
-                <button className="dsh-automation-cal-nav-btn" type="button" aria-label="prev" onClick={() => moveCalendar(-1)}>◀</button>
-                <button className="dsh-automation-cal-nav-btn" type="button" onClick={goCalendarToday}>{t('view.today')}</button>
-                <button className="dsh-automation-cal-nav-btn" type="button" aria-label="next" onClick={() => moveCalendar(1)}>▶</button>
-                <strong className="dsh-automation-cal-title">
-                  {rangeView === 'week'
-                    ? t('calendar.weekTitle', { year: calendarAnchor.getFullYear(), month: calendarAnchor.getMonth() + 1, day: calendarAnchor.getDate() })
-                    : t('calendar.monthTitle', { year: calendarAnchor.getFullYear(), month: calendarAnchor.getMonth() + 1 })}
-                </strong>
+              <div className="dsh-automation-status-summary">
+                <span><b>{t('stats.active')}</b>{stats?.active ?? 0}</span>
+                <span><b>{t('stats.next')}</b>{stats?.nextRunAt === undefined ? t('stats.noneScheduled') : formatRelativeTime(stats.nextRunAt, now, t)}</span>
               </div>
-              {rangeView === 'week' ? (
-                <div className="dsh-automation-cal-week">
-                  {weekDays.map(day => {
-                    const count = countAutomationsOnDay(automations, day)
-                    const weekday = day.getDay() === 0 ? 7 : day.getDay()
-                    return (
-                      <button key={day.toISOString()} type="button" className={`dsh-automation-cal-day${isSameLocalDay(day, todayStart) ? ' is-today' : ''}${isSameLocalDay(day, pickedDate) ? ' is-selected' : ''}`} onClick={() => selectDay(day)}>
-                        <span className="dsh-automation-cal-weekday">{t(`day.${weekday}` as AutomationLocaleKey)}</span>
-                        <span className="dsh-automation-cal-date">{day.getMonth() + 1}/{day.getDate()}</span>
-                        {count > 0 && <span className="dsh-automation-cal-count">{t('calendar.taskCount', { count })}</span>}
-                      </button>
-                    )
-                  })}
-                </div>
-              ) : (
-                <div className="dsh-automation-cal-month">
-                  {monthDays.map(day => {
-                    const count = countAutomationsOnDay(automations, day)
-                    const otherMonth = day.getMonth() !== calendarAnchor.getMonth()
-                    return (
-                      <button key={day.toISOString()} type="button" className={`dsh-automation-cal-month-day${otherMonth ? ' is-other' : ''}${isSameLocalDay(day, todayStart) ? ' is-today' : ''}${isSameLocalDay(day, pickedDate) ? ' is-selected' : ''}`} onClick={() => selectDay(day)}>
-                        <span className="dsh-automation-cal-month-date">{day.getDate()}</span>
-                        {count > 0 && <span className="dsh-automation-cal-count dsh-automation-cal-count--dot">{count}</span>}
-                      </button>
-                    )
-                  })}
+              <div className="dsh-automation-toolbar-actions">
+                <button className="dsh-automation-button dsh-automation-button--primary" type="button" onClick={toggleCreate}>
+                  {showCreate ? <><PauseIcon />{t('header.closeCreate')}</> : <><PlusIcon />{t('header.create')}</>}
+                </button>
+                <button className="dsh-automation-refresh-button" type="button" aria-label={t('section.refresh')} title={t('section.refresh')} onClick={() => { void refresh().catch(() => undefined) }} disabled={state.phase === 'loading'}><RefreshIcon /></button>
+              </div>
+            </div>
+            <div className="dsh-automation-toolbar-bottom">
+              <div className="dsh-automation-toolbar-controls">
+              {taskView === 'all' && (
+                <div className="dsh-automation-range-switch" role="group" aria-label={t('view.allTasks')}>
+                  {(['list', 'week', 'month'] as const).map(range => (
+                    <button key={range} type="button" className={rangeView === range ? 'is-selected' : ''} aria-pressed={rangeView === range} onClick={() => selectRange(range)}>
+                      {t(`view.${range}`)}
+                    </button>
+                  ))}
                 </div>
               )}
+              {taskView === 'all' && rangeView !== 'list' && (
+                <div className="dsh-automation-cal-nav">
+                  <button className="dsh-automation-cal-nav-btn" type="button" onClick={goCalendarToday}>{t('view.today')}</button>
+                  <button className="dsh-automation-cal-nav-btn" type="button" aria-label="prev" onClick={() => moveCalendar(-1)}>◀</button>
+                  <div className="dsh-automation-cal-title-box">
+                    <select className="dsh-automation-cal-title-select" value={calendarTitleYear} aria-label={t('calendar.year')} onChange={event => changeCalendarYear(Number(event.currentTarget.value))}>
+                      {Array.from({ length: 7 }, (_, index) => todayStart.getFullYear() - 3 + index).map(year => (
+                        <option key={year} value={year}>{year}</option>
+                      ))}
+                    </select>
+                    <select className="dsh-automation-cal-title-select" value={calendarTitleMonth} aria-label={t('calendar.month')} onChange={event => changeCalendarMonth(Number(event.currentTarget.value))}>
+                      {Array.from({ length: 12 }, (_, index) => index + 1).map(month => (
+                        <option key={month} value={month}>{month}月</option>
+                      ))}
+                    </select>
+                  </div>
+                  <button className="dsh-automation-cal-nav-btn" type="button" aria-label="next" onClick={() => moveCalendar(1)}>▶</button>
+                </div>
+              )}
+              <div className="dsh-automation-sort-group">
+                <div className="dsh-automation-sort-switch" role="group" aria-label={t('sort.by')}>
+                  <button type="button" className={sortKey === 'planned' ? 'is-selected' : ''} aria-pressed={sortKey === 'planned'} onClick={() => selectSort('planned', sortDirection)}>{t('sort.planned')}</button>
+                  <button type="button" className={sortKey === 'created' ? 'is-selected' : ''} aria-pressed={sortKey === 'created'} onClick={() => selectSort('created', sortDirection)}>{t('sort.created')}</button>
+                  <span className="dsh-automation-sort-sep" aria-hidden="true" />
+                  <button type="button" className={sortDirection === 'asc' ? 'is-selected' : ''} aria-pressed={sortDirection === 'asc'} onClick={() => selectSort(sortKey, 'asc')}>{t('sort.asc')}</button>
+                  <button type="button" className={sortDirection === 'desc' ? 'is-selected' : ''} aria-pressed={sortDirection === 'desc'} onClick={() => selectSort(sortKey, 'desc')}>{t('sort.desc')}</button>
+                </div>
+              </div>
+              </div>
             </div>
-          )}
+            {taskView === 'all' && rangeView !== 'list' && (
+              <div className="dsh-automation-toolbar-calendar">
+                <div className="dsh-automation-calendar">
+                  {rangeView === 'week' ? (
+                    <div className="dsh-automation-cal-week">
+                      {weekDays.map(day => {
+                        const count = countAutomationsOnDay(automations, day)
+                        const weekday = day.getDay() === 0 ? 7 : day.getDay()
+                        return (
+                          <button key={day.toISOString()} type="button" className={`dsh-automation-cal-day${isSameLocalDay(day, todayStart) ? ' is-today' : ''}${isSameLocalDay(day, pickedDate) ? ' is-selected' : ''}`} onClick={() => selectDay(day)}>
+                            <span className="dsh-automation-cal-weekday">{t(`day.${weekday}` as AutomationLocaleKey)}</span>
+                            <span className="dsh-automation-cal-date">{day.getMonth() + 1}/{day.getDate()}</span>
+                            {count > 0 && <span className="dsh-automation-cal-count">{t('calendar.taskCount', { count })}</span>}
+                          </button>
+                        )
+                      })}
+                    </div>
+                  ) : (
+                    <div className="dsh-automation-cal-month">
+                      {monthDays.map(day => {
+                        const count = countAutomationsOnDay(automations, day)
+                        const otherMonth = day.getMonth() !== calendarAnchor.getMonth()
+                        return (
+                          <button key={day.toISOString()} type="button" className={`dsh-automation-cal-month-day${otherMonth ? ' is-other' : ''}${isSameLocalDay(day, todayStart) ? ' is-today' : ''}${isSameLocalDay(day, pickedDate) ? ' is-selected' : ''}`} onClick={() => selectDay(day)}>
+                            <span className="dsh-automation-cal-month-date">{day.getDate()}</span>
+                            {count > 0 && <span className="dsh-automation-cal-count dsh-automation-cal-count--dot">{count}</span>}
+                          </button>
+                        )
+                      })}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
 
           {automations.length === 0 ? (
             <div className="dsh-automation-empty">
@@ -842,22 +871,29 @@ export function AutomationView({
         </section>
 
         <aside className="dsh-automation-runs-column">
-          <div className="dsh-automation-section-heading dsh-automation-module-head">
-            <div><h2>{t('section.runs')}</h2><p>{t('section.runsHint')}</p></div>
+          <div className="dsh-automation-runs-panel">
+            <div className="dsh-automation-runs-head">
+              <h2>{t('section.runs')}</h2>
+              <span className="dsh-automation-runs-attention">
+                <AlertIcon />
+                {t('stats.attention')}
+                <b>{stats?.attention ?? 0}</b>
+              </span>
+            </div>
+            {snapshot.runs.length === 0
+              ? <div className="dsh-automation-runs-empty">{t('runs.empty')}</div>
+              : <div className="dsh-automation-run-list">{snapshot.runs.slice(0, 12).map(run => (
+                  <RecentRun
+                    key={run.id}
+                    run={run}
+                    now={now}
+                    t={t}
+                    busy={busyKey?.endsWith(`:${run.id}`) === true}
+                    onOpen={onOpenSession}
+                    onMarkRead={onMarkRead}
+                  />
+                ))}</div>}
           </div>
-          {snapshot.runs.length === 0
-            ? <div className="dsh-automation-runs-empty">{t('runs.empty')}</div>
-            : <div className="dsh-automation-run-list">{snapshot.runs.slice(0, 12).map(run => (
-                <RecentRun
-                  key={run.id}
-                  run={run}
-                  now={now}
-                  t={t}
-                  busy={busyKey?.endsWith(`:${run.id}`) === true}
-                  onOpen={onOpenSession}
-                  onMarkRead={onMarkRead}
-                />
-              ))}</div>}
         </aside>
       </div>
     </div>
