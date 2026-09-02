@@ -86,6 +86,9 @@ export interface SortPreferenceStorage {
     getItem(key: string): string | null;
     setItem(key: string, value: string): void;
 }
+export declare function resolveSortPreferenceStorage(owner: {
+    readonly localStorage: SortPreferenceStorage;
+} | undefined): SortPreferenceStorage | undefined;
 export declare const WORKSPACE_SORT_DEFAULT_KEY = "dsh-automation.sort-default.workspace";
 /** 读取已保存的默认排序；缺失、损坏或无存储时返回 undefined，由调用方用自身默认值。 */
 export declare function readSortDefault(storage: SortPreferenceStorage | undefined, storageKey: string): {

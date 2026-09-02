@@ -1,4 +1,4 @@
-import type { ClientLlmApi, ClientRpc } from './contracts.js';
+import type { ClientRemote, ClientRpc } from './contracts.js';
 import type { AutomationSnapshot, CreateAutomationInput, MutateRequest, UpdateAutomationInput, ModelCatalog } from './protocol.js';
 export interface AutomationClientState {
     readonly phase: 'idle' | 'loading' | 'ready' | 'error' | 'unavailable';
@@ -22,7 +22,7 @@ export interface AutomationRuntime {
     deleteRun(runId: string): Promise<void>;
     openRunSession(runId: string, open: () => Promise<void>): Promise<void>;
 }
-/** Read the Host-wide catalog without discarding sound providers when peers fail. */
-export declare function loadModelCatalog(api: ClientLlmApi): Promise<ModelCatalog>;
+/** Load the Host catalog through the Session remote service DSH 2.0.x ships. */
+export declare function loadModelCatalog(remote: ClientRemote): Promise<ModelCatalog>;
 /** One session-scoped observable; the framework binds it into useAutomationState. */
 export declare function createAutomationRuntime(rpc: ClientRpc, sessionId: string): AutomationRuntime;

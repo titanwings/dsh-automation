@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 import type { AutomationViewProps, Translate } from './contracts.js'
 import type { AutomationLocaleKey } from './locales.js'
 import {
@@ -21,6 +22,7 @@ import {
   readDraft,
   reasoningEffortChoices,
   readSortDefault,
+  resolveSortPreferenceStorage,
   shortSessionId,
   sortAutomations,
   writeDraft,
@@ -68,11 +70,15 @@ const FALLBACK_CITY_ZONES = [
 ] as const
 
 function cityZoneList(): readonly string[] {
-  if (typeof Intl !== 'undefined' && 'supportedValuesOf' in Intl) {
-    return Intl.supportedValuesOf('timeZone').filter(zone => (
-      zone === 'UTC'
-      || (zone.includes('/') && !zone.startsWith('Etc/') && !zone.startsWith('SystemV/'))
-    ))
+  try {
+    if (typeof Intl !== 'undefined' && 'supportedValuesOf' in Intl) {
+      return Intl.supportedValuesOf('timeZone').filter(zone => (
+        zone === 'UTC'
+        || (zone.includes('/') && !zone.startsWith('Etc/') && !zone.startsWith('SystemV/'))
+      ))
+    }
+  } catch {
+    // Older embedded browsers may expose supportedValuesOf without timeZone support.
   }
   return FALLBACK_CITY_ZONES
 }
@@ -116,7 +122,9 @@ function timeZoneChoices(current: string): readonly { readonly value: string; re
   }
   return items.map(({ value, label }) => ({ value, label }))
 }
-const SORT_STORAGE: SortPreferenceStorage | undefined = typeof window === 'undefined' ? undefined : window.localStorage
+const SORT_STORAGE: SortPreferenceStorage | undefined = resolveSortPreferenceStorage(
+  typeof window === 'undefined' ? undefined : window,
+)
 
 type BusyAction = 'create' | 'update' | 'pause' | 'resume' | 'run' | 'read' | 'delete' | 'delete-run'
 type TaskView = 'today' | 'all'
@@ -162,23 +170,115 @@ interface FormCommonProps {
   readonly onCancel: () => void
 }
 
-function initialFloatBox(anchor?: DOMRect): { readonly x: number; readonly y: number; readonly w: number; readonly h: number } {
-  const W = 480
-  const H = 645
-  if (typeof window === 'undefined') return { x: 0, y: 0, w: W, h: H }
-  const w = Math.max(480, Math.min(W, window.innerWidth - 32))
-  const h = Math.min(H, window.innerHeight - 48)
-  let x = Math.max(16, Math.round((window.innerWidth - w) / 2))
-  let y = Math.max(16, Math.round((window.innerHeight - h) / 2))
-  if (anchor !== undefined) {
-    x = Math.round(anchor.right + 8)
-    y = Math.round(anchor.bottom + 8)
-    if (y + h > window.innerHeight - 8) y = Math.round(anchor.top - h - 8)
-    if (x + w > window.innerWidth - 8) x = Math.max(8, Math.round(anchor.left - w - 8))
-    if (x < 8) x = 8
-    if (y < 8) y = 8
+export interface AutomationFloatBox {
+  readonly x: number
+  readonly y: number
+  readonly w: number
+  readonly h: number
+}
+
+export interface AutomationFloatViewport {
+  readonly width: number
+  readonly height: number
+  readonly offsetLeft?: number
+  readonly offsetTop?: number
+}
+
+export interface AutomationFloatAnchor {
+  readonly left: number
+  readonly right: number
+  readonly top: number
+  readonly bottom: number
+}
+
+const FLOAT_DEFAULT_WIDTH = 480
+const FLOAT_DEFAULT_HEIGHT = 645
+const FLOAT_MIN_WIDTH = 320
+const FLOAT_MIN_HEIGHT = 320
+const FLOAT_MARGIN = 8
+
+function currentAutomationFloatViewport(): AutomationFloatViewport {
+  if (typeof window === 'undefined') return { width: FLOAT_DEFAULT_WIDTH + 32, height: FLOAT_DEFAULT_HEIGHT + 48 }
+  const viewport = window.visualViewport
+  if (viewport === null) return {
+    width: Math.max(0, Math.floor(window.innerWidth)),
+    height: Math.max(0, Math.floor(window.innerHeight)),
   }
-  return { x, y, w, h }
+  return {
+    width: Math.max(0, Math.floor(viewport.width)),
+    height: Math.max(0, Math.floor(viewport.height)),
+    offsetLeft: Math.max(0, viewport.offsetLeft),
+    offsetTop: Math.max(0, viewport.offsetTop),
+  }
+}
+
+function withAutomationFloatOrigin(
+  box: AutomationFloatBox,
+  viewport: AutomationFloatViewport,
+): AutomationFloatBox {
+  const originLeft = viewport.offsetLeft ?? 0
+  const originTop = viewport.offsetTop ?? 0
+  if (originLeft === 0 && originTop === 0) return box
+  return { ...box, x: box.x + originLeft, y: box.y + originTop }
+}
+
+function withoutAutomationFloatOrigin(
+  box: AutomationFloatBox,
+  viewport: AutomationFloatViewport,
+): AutomationFloatBox {
+  const originLeft = viewport.offsetLeft ?? 0
+  const originTop = viewport.offsetTop ?? 0
+  if (originLeft === 0 && originTop === 0) return box
+  return { ...box, x: box.x - originLeft, y: box.y - originTop }
+}
+
+/** Keep the complete floating editor inside even a narrow visual viewport. */
+export function clampAutomationFloatBox(
+  value: AutomationFloatBox,
+  viewport: AutomationFloatViewport,
+): AutomationFloatBox {
+  const box = withoutAutomationFloatOrigin(value, viewport)
+  const marginX = Math.min(FLOAT_MARGIN, Math.max(0, viewport.width / 2))
+  const marginY = Math.min(FLOAT_MARGIN, Math.max(0, viewport.height / 2))
+  const availableWidth = Math.max(0, viewport.width - marginX * 2)
+  const availableHeight = Math.max(0, viewport.height - marginY * 2)
+  const minWidth = Math.min(FLOAT_MIN_WIDTH, availableWidth)
+  const minHeight = Math.min(FLOAT_MIN_HEIGHT, availableHeight)
+  const w = Math.max(minWidth, Math.min(box.w, availableWidth))
+  const h = Math.max(minHeight, Math.min(box.h, availableHeight))
+  const x = Math.max(marginX, Math.min(box.x, viewport.width - marginX - w))
+  const y = Math.max(marginY, Math.min(box.y, viewport.height - marginY - h))
+  return withAutomationFloatOrigin({ x, y, w, h }, viewport)
+}
+
+export function initialAutomationFloatBox(
+  anchor?: AutomationFloatAnchor,
+  viewport = currentAutomationFloatViewport(),
+): AutomationFloatBox {
+  const originLeft = viewport.offsetLeft ?? 0
+  const originTop = viewport.offsetTop ?? 0
+  const originViewport: AutomationFloatViewport = {
+    width: viewport.width,
+    height: viewport.height,
+    offsetLeft: originLeft,
+    offsetTop: originTop,
+  }
+  let box = clampAutomationFloatBox({
+    x: Math.round((viewport.width - FLOAT_DEFAULT_WIDTH) / 2),
+    y: Math.round((viewport.height - FLOAT_DEFAULT_HEIGHT) / 2),
+    w: FLOAT_DEFAULT_WIDTH,
+    h: FLOAT_DEFAULT_HEIGHT,
+  }, originViewport)
+  if (anchor === undefined) return box
+
+  let x = Math.round(anchor.right + FLOAT_MARGIN)
+  let y = Math.round(anchor.bottom + FLOAT_MARGIN)
+  const rightLimit = originLeft + viewport.width - FLOAT_MARGIN
+  const bottomLimit = originTop + viewport.height - FLOAT_MARGIN
+  if (x + box.w > rightLimit) x = Math.round(anchor.left - box.w - FLOAT_MARGIN)
+  if (y + box.h > bottomLimit) y = Math.round(anchor.top - box.h - FLOAT_MARGIN)
+  box = clampAutomationFloatBox({ ...box, x, y }, originViewport)
+  return box
 }
 
 function AutomationFloat({ label, busy, onClose, anchor, children }: {
@@ -188,7 +288,7 @@ function AutomationFloat({ label, busy, onClose, anchor, children }: {
   readonly anchor: DOMRect | undefined
   readonly children: ReactNode
 }): JSX.Element {
-  const [box, setBox] = useState(() => initialFloatBox(anchor))
+  const [box, setBox] = useState(() => initialAutomationFloatBox(anchor))
   const dragRef = useRef<{
     readonly mode: 'move' | 'resize'
     readonly startX: number
@@ -198,6 +298,7 @@ function AutomationFloat({ label, busy, onClose, anchor, children }: {
     readonly w: number
     readonly h: number
   }>()
+  const dragCleanupRef = useRef<(() => void) | undefined>(undefined)
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent): void => {
@@ -209,12 +310,33 @@ function AutomationFloat({ label, busy, onClose, anchor, children }: {
     return () => { window.removeEventListener('keydown', onKeyDown) }
   }, [busy, onClose])
 
-  const clampBox = (value: { readonly x: number; readonly y: number; readonly w: number; readonly h: number }): void => {
-    const w = Math.max(480, Math.min(value.w, window.innerWidth - 24))
-    const h = Math.max(320, Math.min(value.h, window.innerHeight - 24))
-    const x = Math.max(0, Math.min(value.x, window.innerWidth - 160))
-    const y = Math.max(0, Math.min(value.y, window.innerHeight - 96))
-    setBox({ x, y, w, h })
+  useEffect(() => {
+    const reclamp = (): void => {
+      setBox(current => clampAutomationFloatBox(current, currentAutomationFloatViewport()))
+    }
+    const viewport = window.visualViewport
+    window.addEventListener('resize', reclamp)
+    viewport?.addEventListener('resize', reclamp)
+    viewport?.addEventListener('scroll', reclamp)
+    return () => {
+      window.removeEventListener('resize', reclamp)
+      viewport?.removeEventListener('resize', reclamp)
+      viewport?.removeEventListener('scroll', reclamp)
+      dragCleanupRef.current?.()
+    }
+  }, [])
+
+  const clampBox = (value: AutomationFloatBox): void => {
+    setBox(clampAutomationFloatBox(value, currentAutomationFloatViewport()))
+  }
+
+  /** Stop an in-flight drag when the window loses capture or the pointer is released elsewhere. */
+  const stopDrag = (): void => {
+    dragRef.current = undefined
+    const cleanup = dragCleanupRef.current
+    if (cleanup === undefined) return
+    dragCleanupRef.current = undefined
+    cleanup()
   }
 
   const onMoveStart = (event: ReactMouseEvent<HTMLDivElement>): void => {
@@ -233,13 +355,15 @@ function AutomationFloat({ label, busy, onClose, anchor, children }: {
         h: drag.h,
       })
     }
-    const onUp = (): void => {
-      dragRef.current = undefined
+    const cleanup = (): void => {
       window.removeEventListener('mousemove', onMove)
-      window.removeEventListener('mouseup', onUp)
+      window.removeEventListener('mouseup', stopDrag)
+      window.removeEventListener('blur', stopDrag)
     }
+    dragCleanupRef.current = cleanup
     window.addEventListener('mousemove', onMove)
-    window.addEventListener('mouseup', onUp)
+    window.addEventListener('mouseup', stopDrag)
+    window.addEventListener('blur', stopDrag)
   }
 
   const onResizeStart = (event: ReactMouseEvent<HTMLDivElement>): void => {
@@ -257,16 +381,18 @@ function AutomationFloat({ label, busy, onClose, anchor, children }: {
         h: drag.h + move.clientY - drag.startY,
       })
     }
-    const onUp = (): void => {
-      dragRef.current = undefined
+    const cleanup = (): void => {
       window.removeEventListener('mousemove', onMove)
-      window.removeEventListener('mouseup', onUp)
+      window.removeEventListener('mouseup', stopDrag)
+      window.removeEventListener('blur', stopDrag)
     }
+    dragCleanupRef.current = cleanup
     window.addEventListener('mousemove', onMove)
-    window.addEventListener('mouseup', onUp)
+    window.addEventListener('mouseup', stopDrag)
+    window.addEventListener('blur', stopDrag)
   }
 
-  return (
+  const dialog = (
     <div
       className="dsh-automation-float"
       role="dialog"
@@ -279,6 +405,7 @@ function AutomationFloat({ label, busy, onClose, anchor, children }: {
       <div className="dsh-automation-float-resize" aria-hidden="true" onMouseDown={onResizeStart} />
     </div>
   )
+  return typeof document === 'undefined' ? dialog : createPortal(dialog, document.body)
 }
 
 type AutomationFormProps = FormCommonProps & ({
@@ -304,6 +431,11 @@ function AutomationForm(props: AutomationFormProps): JSX.Element {
   const [catalogLoading, setCatalogLoading] = useState(true)
   const [catalogGeneration, setCatalogGeneration] = useState(0)
   const zoneSelect = useRef<HTMLSelectElement>(null)
+  const nameInput = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    nameInput.current?.focus({ preventScroll: true })
+  }, [])
 
   useEffect(() => {
     let live = true
@@ -402,7 +534,7 @@ function AutomationForm(props: AutomationFormProps): JSX.Element {
       <div className="dsh-automation-form-grid">
         <label className="dsh-automation-field">
           <span>{t('form.name')}</span>
-          <input value={form.name} maxLength={80} placeholder={t('form.namePlaceholder')} autoFocus onChange={event => update('name', event.currentTarget.value)} />
+          <input ref={nameInput} value={form.name} maxLength={80} placeholder={t('form.namePlaceholder')} onChange={event => update('name', event.currentTarget.value)} />
         </label>
         <label className="dsh-automation-field dsh-automation-field--wide">
           <span>{t('form.prompt')}<small className="dsh-automation-field-note">{t('form.subtitle')}</small></span>

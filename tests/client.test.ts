@@ -19,6 +19,7 @@ import {
   readDraft,
   readSortDefault,
   reasoningEffortChoices,
+  resolveSortPreferenceStorage,
   sortAutomations,
   startOfLocalWeek,
   writeDraft,
@@ -26,7 +27,7 @@ import {
   WORKSPACE_SORT_DEFAULT_KEY,
 } from '../src/client/helpers.js'
 import { en, zh } from '../src/client/locales.js'
-import { RecentRun } from '../src/client/AutomationView.js'
+import { clampAutomationFloatBox, initialAutomationFloatBox, RecentRun } from '../src/client/AutomationView.js'
 import { createAutomationRuntime, loadModelCatalog } from '../src/client/runtime.js'
 import type { AutomationSnapshot, ModelCatalog } from '../src/client/protocol.js'
 
@@ -243,26 +244,76 @@ test('catalog choices keep successful providers and unavailable current pins', (
   ])
 })
 
-test('Host-wide model catalog uses the official API envelope and preserves partial failures', async () => {
+test('Host-wide model catalog loads through the Session API and rejects malformed values', async () => {
   const catalog: ModelCatalog = {
     groups: [{ id: 'provider', name: 'Provider', models: [{ id: 'model', name: 'Model' }] }],
     failures: [{ id: 'broken', name: 'Broken', message: 'offline' }],
   }
-  const calls: unknown[] = []
-  const value = await loadModelCatalog({
-    models: async (payload) => {
-      calls.push(payload)
-      return { result: { ok: true, value: catalog } }
-    },
-  })
-  assert.deepEqual(calls, [{}])
-  assert.equal(value, catalog)
+  const remote = {
+    session: { modelCatalog: async () => ({ ok: true as const, value: catalog }) },
+  }
+  assert.equal(await loadModelCatalog(remote), catalog)
+  assert.equal((await remote.session.modelCatalog()).ok, true)
 
   await assert.rejects(() => loadModelCatalog({
-    models: async () => ({
-      result: { ok: false, error: { code: 'catalog-unavailable', message: 'host offline' } },
-    }),
+    session: {
+      modelCatalog: async () => ({
+        ok: false,
+        error: { code: 'catalog-unavailable', message: 'host offline' },
+      }),
+    },
   }), /host offline/)
+  await assert.rejects(() => loadModelCatalog({
+    session: {
+      modelCatalog: async () => ({
+        ok: true,
+        value: { groups: undefined, failures: [] } as unknown as ModelCatalog,
+      }),
+    },
+  }), /invalid response/)
+})
+
+test('floating editor geometry remains fully visible in narrow and resized viewports', () => {
+  assert.deepEqual(initialAutomationFloatBox(undefined, { width: 320, height: 240 }), {
+    x: 8, y: 8, w: 304, h: 224,
+  })
+  assert.deepEqual(initialAutomationFloatBox(
+    { left: 300, right: 320, top: 220, bottom: 240 },
+    { width: 320, height: 240 },
+  ), { x: 8, y: 8, w: 304, h: 224 })
+  assert.deepEqual(clampAutomationFloatBox(
+    { x: -20, y: -20, w: 100, h: 100 },
+    { width: 640, height: 480 },
+  ), { x: 8, y: 8, w: 320, h: 320 })
+  assert.deepEqual(clampAutomationFloatBox(
+    { x: 900, y: 700, w: 900, h: 900 },
+    { width: 1024, height: 768 },
+  ), { x: 116, y: 8, w: 900, h: 752 })
+})
+
+test('floating editor geometry honours the visual viewport origin', () => {
+  const viewport = { width: 800, height: 600, offsetLeft: 40, offsetTop: 60 }
+  const initial = initialAutomationFloatBox(undefined, viewport)
+  assert.equal(initial.x >= 48, true)
+  assert.equal(initial.y >= 68, true)
+  assert.equal(initial.x + initial.w <= 40 + 800 - 8, true)
+  assert.equal(initial.y + initial.h <= 60 + 600 - 8, true)
+
+  const clamped = clampAutomationFloatBox(
+    { x: -200, y: -200, w: 100, h: 100 },
+    viewport,
+  )
+  assert.equal(clamped.x >= 48, true)
+  assert.equal(clamped.y >= 68, true)
+  assert.equal(clamped.w, 320)
+  assert.equal(clamped.h, 320)
+
+  const clampedLow = clampAutomationFloatBox(
+    { x: 900, y: 900, w: 900, h: 900 },
+    viewport,
+  )
+  assert.equal(clampedLow.x + clampedLow.w <= 40 + 800 - 8, true)
+  assert.equal(clampedLow.y + clampedLow.h <= 60 + 600 - 8, true)
 })
 
 test('deriveOverview counts unread problem runs and ignores reviewed ones', () => {
@@ -341,6 +392,13 @@ test('calendar counts split active and paused tasks on the same day', () => {
   assert.deepEqual(countAutomationsByStatusOnDay([active, paused], new Date(2026, 7, 28)), { active: 0, paused: 0 })
 })
 
+test('storage discovery tolerates browsers that deny localStorage access', () => {
+  assert.equal(resolveSortPreferenceStorage(undefined), undefined)
+  assert.equal(resolveSortPreferenceStorage({
+    get localStorage(): never { throw new Error('denied') },
+  }), undefined)
+})
+
 test('create-form drafts roundtrip through storage and reject corrupt values', () => {
   const values = new Map<string, string>()
   const storage = {
@@ -363,6 +421,17 @@ test('create-form drafts roundtrip through storage and reject corrupt values', (
 
   clearDraft(storage, key)
   assert.equal(storage.getItem(key), null)
+
+  const deniedStorage = {
+    getItem: () => { throw new Error('denied') },
+    setItem: () => { throw new Error('denied') },
+    removeItem: () => { throw new Error('denied') },
+  }
+  assert.equal(readDraft(deniedStorage, key), undefined)
+  assert.doesNotThrow(() => writeDraft(deniedStorage, key, form))
+  assert.doesNotThrow(() => clearDraft(deniedStorage, key))
+  assert.equal(readSortDefault(deniedStorage, WORKSPACE_SORT_DEFAULT_KEY), undefined)
+  assert.doesNotThrow(() => writeSortDefault(deniedStorage, WORKSPACE_SORT_DEFAULT_KEY, 'created', 'desc'))
 })
 
 test('formatRelativeTime handles past and future windows', () => {

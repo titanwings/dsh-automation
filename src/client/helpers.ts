@@ -38,14 +38,23 @@ export function readDraft(storage: SortPreferenceStorage | undefined, key: strin
 }
 
 export function writeDraft(storage: SortPreferenceStorage | undefined, key: string, form: AutomationFormState): void {
-  storage?.setItem(key, JSON.stringify(form))
+  if (storage === undefined) return
+  try {
+    storage.setItem(key, JSON.stringify(form))
+  } catch {
+    // Draft persistence is best-effort; storage denial must not unmount the form.
+  }
 }
 
 export function clearDraft(storage: SortPreferenceStorage | undefined, key: string): void {
   if (storage === undefined) return
-  const removable = storage as SortPreferenceStorage & { readonly removeItem?: (key: string) => void }
-  if (removable.removeItem !== undefined) removable.removeItem(key)
-  else storage.setItem(key, '')
+  try {
+    const removable = storage as SortPreferenceStorage & { readonly removeItem?: (key: string) => void }
+    if (removable.removeItem !== undefined) removable.removeItem(key)
+    else storage.setItem(key, '')
+  } catch {
+    // Keep form close/submit paths usable when browser storage is unavailable.
+  }
 }
 
 export interface AutomationFormState {
@@ -508,6 +517,17 @@ export interface SortPreferenceStorage {
   setItem(key: string, value: string): void
 }
 
+export function resolveSortPreferenceStorage(
+  owner: { readonly localStorage: SortPreferenceStorage } | undefined,
+): SortPreferenceStorage | undefined {
+  if (owner === undefined) return undefined
+  try {
+    return owner.localStorage
+  } catch {
+    return undefined
+  }
+}
+
 export const WORKSPACE_SORT_DEFAULT_KEY = 'dsh-automation.sort-default.workspace'
 
 /** 读取已保存的默认排序；缺失、损坏或无存储时返回 undefined，由调用方用自身默认值。 */
@@ -534,5 +554,9 @@ export function writeSortDefault(
   key: AutomationSortKey,
   direction: AutomationSortDirection,
 ): void {
-  storage.setItem(storageKey, JSON.stringify({ key, direction }))
+  try {
+    storage.setItem(storageKey, JSON.stringify({ key, direction }))
+  } catch {
+    // Preference persistence is best-effort; storage denial must not break sorting.
+  }
 }

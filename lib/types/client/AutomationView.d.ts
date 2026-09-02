@@ -1,5 +1,26 @@
 import type { AutomationViewProps, Translate } from './contracts.js';
 import type { AutomationRunViewModel } from './protocol.js';
+export interface AutomationFloatBox {
+    readonly x: number;
+    readonly y: number;
+    readonly w: number;
+    readonly h: number;
+}
+export interface AutomationFloatViewport {
+    readonly width: number;
+    readonly height: number;
+    readonly offsetLeft?: number;
+    readonly offsetTop?: number;
+}
+export interface AutomationFloatAnchor {
+    readonly left: number;
+    readonly right: number;
+    readonly top: number;
+    readonly bottom: number;
+}
+/** Keep the complete floating editor inside even a narrow visual viewport. */
+export declare function clampAutomationFloatBox(value: AutomationFloatBox, viewport: AutomationFloatViewport): AutomationFloatBox;
+export declare function initialAutomationFloatBox(anchor?: AutomationFloatAnchor, viewport?: AutomationFloatViewport): AutomationFloatBox;
 export declare function RecentRun({ run, now, t, busy, automationMissing, confirmingDelete, onOpen, onMarkRead, onReadd, onConfirmDelete, onDelete }: {
     run: AutomationRunViewModel;
     now: Date;

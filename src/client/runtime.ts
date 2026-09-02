@@ -1,4 +1,4 @@
-import type { ClientLlmApi, ClientRpc } from './contracts.js'
+import type { ClientRemote, ClientRpc } from './contracts.js'
 import type {
   ArchiveRunRequest,
   AutomationSnapshot,
@@ -42,10 +42,25 @@ export interface AutomationRuntime {
   openRunSession(runId: string, open: () => Promise<void>): Promise<void>
 }
 
-/** Read the Host-wide catalog without discarding sound providers when peers fail. */
-export async function loadModelCatalog(api: ClientLlmApi): Promise<ModelCatalog> {
-  const response = await api.models({})
-  return unwrapRpcResult<ModelCatalog>(response.result)
+function isModelCatalog(value: unknown): value is ModelCatalog {
+  if (typeof value !== 'object' || value === null) return false
+  const candidate = value as Partial<ModelCatalog>
+  return Array.isArray(candidate.groups)
+    && candidate.groups.every(group => (
+      typeof group === 'object'
+      && group !== null
+      && typeof group.id === 'string'
+      && typeof group.name === 'string'
+      && Array.isArray(group.models)
+    ))
+    && Array.isArray(candidate.failures)
+}
+
+/** Load the Host catalog through the Session remote service DSH 2.0.x ships. */
+export async function loadModelCatalog(remote: ClientRemote): Promise<ModelCatalog> {
+  const catalog = unwrapRpcResult<ModelCatalog>(await remote.session.modelCatalog())
+  if (!isModelCatalog(catalog)) throw new Error('The model catalog returned an invalid response.')
+  return catalog
 }
 
 /** One session-scoped observable; the framework binds it into useAutomationState. */

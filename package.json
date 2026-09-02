@@ -62,10 +62,14 @@
     "zod": "^4.1.5"
   },
   "peerDependencies": {
-    "react": "^18.2.0"
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
   },
   "peerDependenciesMeta": {
     "react": {
+      "optional": true
+    },
+    "react-dom": {
       "optional": true
     }
   },
@@ -73,8 +77,10 @@
     "@types/luxon": "^3.7.1",
     "@types/node": "^22.0.0",
     "@types/react": "~18.3.1",
+    "@types/react-dom": "~18.3.0",
     "esbuild": "^0.25.0",
     "react": "^18.3.1",
+    "react-dom": "^18.3.1",
     "tsx": "^4.20.0",
     "typescript": "^5.9.0"
   },

@@ -59,6 +59,7 @@ await build({
   sourcemap: true,
   external: [
     'react',
+    'react-dom',
     'react/jsx-runtime',
     '@deepseek-ai/dsh-client-ui-primitives',
   ],
