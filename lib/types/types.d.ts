@@ -94,6 +94,8 @@ export interface AutomationRun {
     readonly unread: boolean;
     /** Set when the user marked a problem run as reviewed; absent before that. */
     readonly reviewedAt?: string | null | undefined;
+    /** Scheduled occurrence this manual "run ahead" run replaces once it succeeds. */
+    readonly replacesScheduledFor?: string | null | undefined;
 }
 export interface CreateAutomationInput {
     readonly id: string;

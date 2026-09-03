@@ -14,4 +14,5 @@ export declare function AlertIcon(props: IconProps): JSX.Element;
 export declare function ChevronIcon(props: IconProps): JSX.Element;
 export declare function ArchiveIcon(props: IconProps): JSX.Element;
 export declare function GlobeIcon(props: IconProps): JSX.Element;
+export declare function GearIcon(props: IconProps): JSX.Element;
 export {};

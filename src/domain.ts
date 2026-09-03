@@ -109,6 +109,7 @@ export const automationRunSchema: z.ZodType<AutomationRun> = z.object({
   error: z.object({ code: nonBlank, message: nonBlank }).nullable(),
   unread: z.boolean(),
   reviewedAt: instant.nullable().optional(),
+  replacesScheduledFor: instant.nullable().optional(),
 })
 
 // `defineDomain()` and `domainTable()` are identity helpers in DSH. Keeping the
@@ -221,11 +222,12 @@ export function createManualRun(
   definition: AutomationDefinition,
   scheduledFor: string,
   nonce: string = randomUUID(),
+  replacesScheduledFor?: string | null,
 ): AutomationRun {
   automationDefinitionSchema.parse(definition)
   const normalizedInstant = parseInstant(scheduledFor, 'scheduledFor')
   const key = `manual:${definition.id}:${requireNonBlank(nonce, 'nonce')}`
-  return queuedRun(definition, normalizedInstant, 'manual', key, runIdForOccurrence(key))
+  return queuedRun(definition, normalizedInstant, 'manual', key, runIdForOccurrence(key), replacesScheduledFor)
 }
 
 function setStatus(
@@ -249,6 +251,7 @@ function queuedRun(
   trigger: AutomationRun['trigger'],
   key: string,
   id: string,
+  replacesScheduledFor?: string | null,
 ): AutomationRun {
   return automationRunSchema.parse({
     version: 1,
@@ -275,6 +278,7 @@ function queuedRun(
     summary: null,
     error: null,
     unread: true,
+    replacesScheduledFor: replacesScheduledFor ?? null,
   })
 }
 

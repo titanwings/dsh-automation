@@ -16,3 +16,14 @@ test('every Automation view state opts into the fixed-height composer-overlay ho
   assert.match(shellRule, /(?:^|;)overflow:auto(?:;|$)/)
   assert.match(shellRule, /(?:^|;)overscroll-behavior:contain(?:;|$)/)
 })
+
+test('floating editor escapes the clipped conversation view and focuses without scrolling', () => {
+  assert.match(viewSource, /createPortal\(dialog, document\.body\)/)
+  assert.doesNotMatch(viewSource, /\sautoFocus(?:\s|>)/)
+  assert.match(viewSource, /focus\(\{ preventScroll: true \}\)/)
+  assert.match(viewSource, /addEventListener\('mouseup', stopDrag\)/)
+  assert.match(viewSource, /addEventListener\('blur', stopDrag\)/)
+  assert.match(viewSource, /viewport\?\.addEventListener\('scroll', reclamp\)/)
+  assert.match(styleSource, /\.dsh-automation-float,\.dsh-automation-float \*\{box-sizing:border-box\}/)
+  assert.match(styleSource, /\.dsh-automation-float button:focus-visible/)
+})

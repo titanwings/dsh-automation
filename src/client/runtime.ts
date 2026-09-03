@@ -1,4 +1,4 @@
-import type { ClientLlmApi, ClientRpc } from './contracts.js'
+import type { ClientRemote, ClientRpc } from './contracts.js'
 import type {
   ArchiveRunRequest,
   AutomationSnapshot,
@@ -8,9 +8,12 @@ import type {
   MarkReadRequest,
   MutateRequest,
   RunNowRequest,
+  RunNowMode,
+  SettingsUpdateInput,
   SnapshotRequest,
   UpdateAutomationInput,
   UpdateRequest,
+  UpdateSettingsRequest,
   ModelCatalog,
 } from './protocol.js'
 import { unwrapRpcResult } from './protocol.js'
@@ -35,17 +38,33 @@ export interface AutomationRuntime {
   createAutomation(input: CreateAutomationInput): Promise<void>
   updateAutomation(automationId: string, expectedRevision: number, input: UpdateAutomationInput): Promise<void>
   mutateAutomation(automationId: string, mutation: MutateRequest['mutation']): Promise<void>
-  runNow(automationId: string): Promise<void>
+  runNow(automationId: string, mode: RunNowMode): Promise<void>
   markRunRead(runId: string): Promise<void>
   archiveRun(runId: string): Promise<void>
   deleteRun(runId: string): Promise<void>
+  updateSettings(settings: SettingsUpdateInput): Promise<void>
   openRunSession(runId: string, open: () => Promise<void>): Promise<void>
 }
 
-/** Read the Host-wide catalog without discarding sound providers when peers fail. */
-export async function loadModelCatalog(api: ClientLlmApi): Promise<ModelCatalog> {
-  const response = await api.models({})
-  return unwrapRpcResult<ModelCatalog>(response.result)
+function isModelCatalog(value: unknown): value is ModelCatalog {
+  if (typeof value !== 'object' || value === null) return false
+  const candidate = value as Partial<ModelCatalog>
+  return Array.isArray(candidate.groups)
+    && candidate.groups.every(group => (
+      typeof group === 'object'
+      && group !== null
+      && typeof group.id === 'string'
+      && typeof group.name === 'string'
+      && Array.isArray(group.models)
+    ))
+    && Array.isArray(candidate.failures)
+}
+
+/** Load the Host catalog through the Session remote service DSH 2.0.x ships. */
+export async function loadModelCatalog(remote: ClientRemote): Promise<ModelCatalog> {
+  const catalog = unwrapRpcResult<ModelCatalog>(await remote.session.modelCatalog())
+  if (!isModelCatalog(catalog)) throw new Error('The model catalog returned an invalid response.')
+  return catalog
 }
 
 /** One session-scoped observable; the framework binds it into useAutomationState. */
@@ -140,13 +159,17 @@ export function createAutomationRuntime(rpc: ClientRpc, sessionId: string): Auto
       const payload: MutateRequest = { sessionId, automationId, mutation }
       await mutateThenRefresh('mutate', payload)
     },
-    async runNow(automationId) {
-      const payload: RunNowRequest = { sessionId, automationId }
+    async runNow(automationId, mode) {
+      const payload: RunNowRequest = { sessionId, automationId, mode }
       await mutateThenRefresh('run-now', payload)
     },
     markRunRead,
     archiveRun,
     deleteRun,
+    async updateSettings(settings) {
+      const payload: UpdateSettingsRequest = { sessionId, settings }
+      await mutateThenRefresh('settings-update', payload)
+    },
     async openRunSession(runId, open) {
       // A failed navigation must leave the run unread so it still asks for
       // attention. Mark it only after the destination Session is available.

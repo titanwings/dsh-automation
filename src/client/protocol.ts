@@ -95,6 +95,12 @@ export interface AutomationRunViewModel {
   readonly permission?: AutomationPermission
 }
 
+export interface AutomationSettingsView {
+  readonly catchUpMissedRuns: boolean
+  readonly catchUpMissedRunsMax: number
+  readonly misfireGraceMinutes: number
+}
+
 export interface AutomationSnapshot {
   readonly scope: {
     readonly workspaceId?: string
@@ -103,6 +109,7 @@ export interface AutomationSnapshot {
   }
   readonly automations: readonly AutomationViewModel[]
   readonly runs: readonly AutomationRunViewModel[]
+  readonly settings?: AutomationSettingsView
   readonly serverNow: string
 }
 
@@ -150,9 +157,12 @@ export interface MutateRequest {
   readonly mutation: 'pause' | 'resume' | 'delete'
 }
 
+export type RunNowMode = 'plain' | 'ahead'
+
 export interface RunNowRequest {
   readonly sessionId: string
   readonly automationId: string
+  readonly mode?: RunNowMode
 }
 
 export interface MarkReadRequest {
@@ -168,6 +178,17 @@ export interface ArchiveRunRequest {
 export interface DeleteRunRequest {
   readonly sessionId: string
   readonly runId: string
+}
+
+export interface SettingsUpdateInput {
+  readonly catchUpMissedRuns: boolean
+  readonly catchUpMissedRunsMax: number
+  readonly misfireGraceMinutes: number
+}
+
+export interface UpdateSettingsRequest {
+  readonly sessionId: string
+  readonly settings: SettingsUpdateInput
 }
 
 export interface RpcErrorValue {

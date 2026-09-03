@@ -288,7 +288,7 @@ export function registerAutomationTools(service: AutomationService, agent: ToolA
       async execute(args: IdArgs, exec: ToolRunContext) {
         if (exec.signal.aborted) return json({ ok: false, code: 'cancelled' })
         try {
-          return json({ ok: true, run: await service.runNow(scopeFor(exec), args.id, exec.signal) })
+          return json({ ok: true, run: await service.runNow(scopeFor(exec), args.id, {}, exec.signal) })
         } catch (error: unknown) {
           if (exec.signal.aborted) return json({ ok: false, code: 'cancelled' })
           return json({ ok: false, code: 'automation_error', message: error instanceof Error ? error.message : String(error) })

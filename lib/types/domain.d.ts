@@ -49,5 +49,5 @@ export declare function deleteDefinition(current: AutomationDefinition): DeleteA
 export declare function occurrenceKey(automationId: string, definitionRevision: number, scheduledFor: string): string;
 export declare function runIdForOccurrence(key: string): string;
 export declare function createScheduledRun(definition: AutomationDefinition, scheduledFor: string): AutomationRun;
-export declare function createManualRun(definition: AutomationDefinition, scheduledFor: string, nonce?: string): AutomationRun;
+export declare function createManualRun(definition: AutomationDefinition, scheduledFor: string, nonce?: string, replacesScheduledFor?: string | null): AutomationRun;
 export type { AutomationSchedule };

@@ -8,6 +8,10 @@ export interface Config {
     readonly misfireGraceMinutes?: number;
     readonly historyLimit?: number;
     readonly archiveRunSessions?: boolean;
+    /** Replay every missed occurrence after a host resume instead of skipping stale ones. */
+    readonly catchUpMissedRuns?: boolean;
+    /** Backlog cap per automation when catchUpMissedRuns is enabled (most recent occurrences win). */
+    readonly catchUpMissedRunsMax?: number;
 }
 export declare const Config: any;
 export declare function needsHumanApproval(exec: {

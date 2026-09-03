@@ -21,6 +21,7 @@ export interface AutomationViewProps {
   readonly markRunRead: AutomationRuntime['markRunRead']
   readonly archiveRun: AutomationRuntime['archiveRun']
   readonly deleteRun: AutomationRuntime['deleteRun']
+  readonly updateSettings: AutomationRuntime['updateSettings']
   readonly loadModelCatalog: () => Promise<ModelCatalog>
   readonly openSession: (runId: string, sessionId: string) => Promise<void>
   readonly refreshSessions: () => Promise<void>
@@ -30,16 +31,21 @@ export interface ClientRpc {
   call(channel: string, endpoint: string, payload: unknown, signal?: AbortSignal): Promise<unknown>
 }
 
-export interface ClientLlmApi {
-  models(payload: Record<string, never>): Promise<{ readonly result: RpcResult<ModelCatalog> }>
+export interface ClientRemoteSession {
+  modelCatalog(): Promise<RpcResult<ModelCatalog>>
+}
+
+/** Shape of the injected DSH client remote service bundle (Typert). */
+export interface ClientRemote {
+  readonly session: ClientRemoteSession
 }
 
 export interface ClientContext {
   effect(factory: () => void | (() => void), label?: string): void
   connection: {
     readonly rpc: ClientRpc
-    readonly api: { readonly llm: ClientLlmApi }
   }
+  readonly remote: ClientRemote
   sessions: {
     refresh(): Promise<void>
     open(sessionId: string): void

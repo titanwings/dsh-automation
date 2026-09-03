@@ -6,6 +6,7 @@ interface PackageManifest {
   name?: string
   exports?: Record<string, { default?: string } | string>
   files?: string[]
+  dependencies?: Record<string, string>
   peerDependencies?: Record<string, string>
   peerDependenciesMeta?: Record<string, { optional?: boolean }>
   scripts?: Record<string, string>
@@ -39,8 +40,11 @@ test('package keeps the installable DSH bundle and Web client contract', async (
   assert.ok(manifest.files?.includes('lib'))
   assert.ok(manifest.files?.includes('cordis.patch.yml'))
   assert.equal(manifest.scripts?.prepare, undefined)
+  assert.deepEqual(Object.keys(manifest.dependencies ?? {}).sort(), ['luxon', 'zod'])
   assert.equal(manifest.peerDependencies?.react, '^18.2.0')
+  assert.equal(manifest.peerDependencies?.['react-dom'], '^18.2.0')
   assert.deepEqual(manifest.peerDependenciesMeta?.react, { optional: true })
+  assert.deepEqual(manifest.peerDependenciesMeta?.['react-dom'], { optional: true })
 
   const patch = await readFile(new URL('cordis.patch.yml', root), 'utf8')
   assert.match(patch, /^\s*- insert:\s*$/m)
@@ -58,6 +62,7 @@ test('package keeps the installable DSH bundle and Web client contract', async (
   assert.match(clientBundle, /window\.__ModuleLoader__\.load\(/)
   assert.match(clientBundle, /@dsh-external\/dsh-automation/)
   assert.match(clientBundle, /sessionArchived/)
+  assert.match(clientBundle, /require\("react-dom"\)/)
   const hostBundle = await readFile(new URL('lib/index.js', root), 'utf8')
   assert.match(hostBundle, /archiveRunSessions: .*\.boolean\(\)\.default\(false\)/)
 })

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import test from 'node:test'
-import { apply } from '../src/client/index.js'
+import { apply, inject } from '../src/client/index.js'
 import {
   activateAutomationTab,
   findAutomationTab,
@@ -30,7 +30,7 @@ test('automation navigation never silently no-ops when hero state has no tabs', 
   assert.equal(unavailable, 1)
 })
 
-test('client registers the session view and installs the homepage sidebar entry', () => {
+test('client registers the session view and wires model catalog through remote.session', async () => {
   const registrations: Array<{
     readonly options: { readonly name: string; readonly id?: string; readonly inject?: () => unknown }
     readonly component: { readonly name?: string }
@@ -41,6 +41,11 @@ test('client registers the session view and installs the homepage sidebar entry'
       effects.push({ factory, ...(label === undefined ? {} : { label }) })
     },
     connection: { rpc: { call: async () => ({}) } },
+    remote: {
+      session: {
+        modelCatalog: async () => ({ ok: true, value: { groups: [], failures: [] } }),
+      },
+    },
     sessions: { refresh: async () => {}, open: () => {} },
     locale: {
       register: () => () => {},
@@ -61,6 +66,9 @@ test('client registers the session view and installs the homepage sidebar entry'
     ['conversation.view', 'automation'],
   ])
   assert.equal(registrations[0]?.component.name, 'AutomationView')
+  assert.deepEqual(inject, ['slots', 'locale', 'connection', 'sessions', 'remote', 'remote.session'])
+  const injected = registrations[0]?.options.inject?.() as { readonly loadModelCatalog: () => Promise<unknown> }
+  assert.deepEqual(await injected.loadModelCatalog(), { groups: [], failures: [] })
   assert.ok(effects.some(effect => effect.label === 'dsh-automation: sidebar entry'))
 })
 

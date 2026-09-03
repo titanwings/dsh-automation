@@ -2,22 +2,35 @@ import { AutomationView } from './AutomationView.js'
 import type { ClientContext } from './contracts.js'
 import { en, NS, zh } from './locales.js'
 import { createAutomationRuntime, loadModelCatalog } from './runtime.js'
+import type { ModelCatalog } from './protocol.js'
 import { installAutomationSidebarEntry } from './sidebar-entry.js'
 import { installStyles } from './styles.js'
 
 export const name = 'dsh-automation-client'
-export const inject = ['slots', 'locale', 'connection', 'sessions']
+export const inject = ['slots', 'locale', 'connection', 'sessions', 'remote', 'remote.session']
 
 /** Register one native Automations tab into DSH's session-scoped view ring. */
 export function apply(ctx: ClientContext): void {
   ctx.effect(() => installStyles(), 'dsh-automation: styles')
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'dsh-automation: locale')
   const t = ctx.locale.bind(NS)
-  const readModelCatalog = () => loadModelCatalog(ctx.connection.api.llm)
+  const catalogRequests = new Map<string, Promise<ModelCatalog>>()
+  const readModelCatalog = (): Promise<ModelCatalog> => {
+    // StrictMode replays effects in development; share one in-flight request.
+    const key = 'default'
+    const pending = catalogRequests.get(key)
+    if (pending !== undefined) return pending
+    const request = loadModelCatalog(ctx.remote)
+    catalogRequests.set(key, request)
+    void request.catch(() => { catalogRequests.delete(key) }).then(() => {
+      if (catalogRequests.get(key) === request) catalogRequests.delete(key)
+    })
+    return request
+  }
   // Inject factories can run more than once while React reconciles. Keep one
   // observable identity per session for the lifetime of this plugin fiber.
   const runtimes = new Map<string, ReturnType<typeof createAutomationRuntime>>()
-  ctx.effect(() => () => { runtimes.clear() }, 'dsh-automation: session runtimes')
+  ctx.effect(() => () => { runtimes.clear(); catalogRequests.clear() }, 'dsh-automation: session runtimes')
   // The homepage entry lives below the new-chat button (no official slot
   // exists there); it is a DOM-managed projection of the conversation view.
   ctx.effect(() => installAutomationSidebarEntry(t), 'dsh-automation: sidebar entry')
@@ -43,6 +56,7 @@ export function apply(ctx: ClientContext): void {
         markRunRead: runtime.markRunRead,
         archiveRun: runtime.archiveRun,
         deleteRun: runtime.deleteRun,
+        updateSettings: runtime.updateSettings,
         loadModelCatalog: readModelCatalog,
         refreshSessions: () => ctx.sessions.refresh(),
         openSession: (runId, runSessionId) => runtime!.openRunSession(runId, async () => {

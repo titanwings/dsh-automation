@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 import type { AutomationViewProps, Translate } from './contracts.js'
 import type { AutomationLocaleKey } from './locales.js'
 import {
@@ -10,17 +11,20 @@ import {
   clearDraft,
   countAutomationsByStatusOnDay,
   countAutomationsOnDay,
+  countExecutedOnDay,
   defaultFormState,
   deriveOverview,
   formatSchedule,
   formatRelativeTime,
   formStateFromAutomation,
+  isFulfilledAutomation,
   isSameLocalDay,
   modelRouteChoices,
   plannedNextRun,
   readDraft,
   reasoningEffortChoices,
   readSortDefault,
+  resolveSortPreferenceStorage,
   shortSessionId,
   sortAutomations,
   writeDraft,
@@ -39,6 +43,8 @@ import {
   AutomationIcon,
   CalendarIcon,
   CheckIcon,
+  ChevronIcon,
+  GearIcon,
   GlobeIcon,
   PauseIcon,
   PencilIcon,
@@ -51,9 +57,12 @@ import {
 import type {
   AutomationRunStatus,
   AutomationRunViewModel,
+  AutomationSettingsView,
   AutomationViewModel,
   CreateAutomationInput,
   ModelCatalog,
+  RunNowMode,
+  SettingsUpdateInput,
   UpdateAutomationInput,
 } from './protocol.js'
 
@@ -68,11 +77,15 @@ const FALLBACK_CITY_ZONES = [
 ] as const
 
 function cityZoneList(): readonly string[] {
-  if (typeof Intl !== 'undefined' && 'supportedValuesOf' in Intl) {
-    return Intl.supportedValuesOf('timeZone').filter(zone => (
-      zone === 'UTC'
-      || (zone.includes('/') && !zone.startsWith('Etc/') && !zone.startsWith('SystemV/'))
-    ))
+  try {
+    if (typeof Intl !== 'undefined' && 'supportedValuesOf' in Intl) {
+      return Intl.supportedValuesOf('timeZone').filter(zone => (
+        zone === 'UTC'
+        || (zone.includes('/') && !zone.startsWith('Etc/') && !zone.startsWith('SystemV/'))
+      ))
+    }
+  } catch {
+    // Older embedded browsers may expose supportedValuesOf without timeZone support.
   }
   return FALLBACK_CITY_ZONES
 }
@@ -116,9 +129,12 @@ function timeZoneChoices(current: string): readonly { readonly value: string; re
   }
   return items.map(({ value, label }) => ({ value, label }))
 }
-const SORT_STORAGE: SortPreferenceStorage | undefined = typeof window === 'undefined' ? undefined : window.localStorage
+const SORT_STORAGE: SortPreferenceStorage | undefined = resolveSortPreferenceStorage(
+  typeof window === 'undefined' ? undefined : window,
+)
+const WORKSPACE_RANGE_DEFAULT_KEY = 'dsh-automation.range-default.workspace'
 
-type BusyAction = 'create' | 'update' | 'pause' | 'resume' | 'run' | 'read' | 'delete' | 'delete-run'
+type BusyAction = 'create' | 'update' | 'pause' | 'resume' | 'run' | 'read' | 'delete' | 'delete-run' | 'settings'
 type TaskView = 'today' | 'all'
 type CalendarRangeView = 'list' | 'week' | 'month'
 
@@ -162,33 +178,127 @@ interface FormCommonProps {
   readonly onCancel: () => void
 }
 
-function initialFloatBox(anchor?: DOMRect): { readonly x: number; readonly y: number; readonly w: number; readonly h: number } {
-  const W = 480
-  const H = 645
-  if (typeof window === 'undefined') return { x: 0, y: 0, w: W, h: H }
-  const w = Math.max(480, Math.min(W, window.innerWidth - 32))
-  const h = Math.min(H, window.innerHeight - 48)
-  let x = Math.max(16, Math.round((window.innerWidth - w) / 2))
-  let y = Math.max(16, Math.round((window.innerHeight - h) / 2))
-  if (anchor !== undefined) {
-    x = Math.round(anchor.right + 8)
-    y = Math.round(anchor.bottom + 8)
-    if (y + h > window.innerHeight - 8) y = Math.round(anchor.top - h - 8)
-    if (x + w > window.innerWidth - 8) x = Math.max(8, Math.round(anchor.left - w - 8))
-    if (x < 8) x = 8
-    if (y < 8) y = 8
-  }
-  return { x, y, w, h }
+export interface AutomationFloatBox {
+  readonly x: number
+  readonly y: number
+  readonly w: number
+  readonly h: number
 }
 
-function AutomationFloat({ label, busy, onClose, anchor, children }: {
+export interface AutomationFloatViewport {
+  readonly width: number
+  readonly height: number
+  readonly offsetLeft?: number
+  readonly offsetTop?: number
+}
+
+export interface AutomationFloatAnchor {
+  readonly left: number
+  readonly right: number
+  readonly top: number
+  readonly bottom: number
+}
+
+const FLOAT_DEFAULT_WIDTH = 480
+const FLOAT_DEFAULT_HEIGHT = 645
+const FLOAT_MIN_WIDTH = 320
+const FLOAT_MIN_HEIGHT = 320
+const FLOAT_MARGIN = 8
+
+function currentAutomationFloatViewport(): AutomationFloatViewport {
+  if (typeof window === 'undefined') return { width: FLOAT_DEFAULT_WIDTH + 32, height: FLOAT_DEFAULT_HEIGHT + 48 }
+  const viewport = window.visualViewport
+  if (viewport === null) return {
+    width: Math.max(0, Math.floor(window.innerWidth)),
+    height: Math.max(0, Math.floor(window.innerHeight)),
+  }
+  return {
+    width: Math.max(0, Math.floor(viewport.width)),
+    height: Math.max(0, Math.floor(viewport.height)),
+    offsetLeft: Math.max(0, viewport.offsetLeft),
+    offsetTop: Math.max(0, viewport.offsetTop),
+  }
+}
+
+function withAutomationFloatOrigin(
+  box: AutomationFloatBox,
+  viewport: AutomationFloatViewport,
+): AutomationFloatBox {
+  const originLeft = viewport.offsetLeft ?? 0
+  const originTop = viewport.offsetTop ?? 0
+  if (originLeft === 0 && originTop === 0) return box
+  return { ...box, x: box.x + originLeft, y: box.y + originTop }
+}
+
+function withoutAutomationFloatOrigin(
+  box: AutomationFloatBox,
+  viewport: AutomationFloatViewport,
+): AutomationFloatBox {
+  const originLeft = viewport.offsetLeft ?? 0
+  const originTop = viewport.offsetTop ?? 0
+  if (originLeft === 0 && originTop === 0) return box
+  return { ...box, x: box.x - originLeft, y: box.y - originTop }
+}
+
+/** Keep the complete floating editor inside even a narrow visual viewport. */
+export function clampAutomationFloatBox(
+  value: AutomationFloatBox,
+  viewport: AutomationFloatViewport,
+): AutomationFloatBox {
+  const box = withoutAutomationFloatOrigin(value, viewport)
+  const marginX = Math.min(FLOAT_MARGIN, Math.max(0, viewport.width / 2))
+  const marginY = Math.min(FLOAT_MARGIN, Math.max(0, viewport.height / 2))
+  const availableWidth = Math.max(0, viewport.width - marginX * 2)
+  const availableHeight = Math.max(0, viewport.height - marginY * 2)
+  const minWidth = Math.min(FLOAT_MIN_WIDTH, availableWidth)
+  const minHeight = Math.min(FLOAT_MIN_HEIGHT, availableHeight)
+  const w = Math.max(minWidth, Math.min(box.w, availableWidth))
+  const h = Math.max(minHeight, Math.min(box.h, availableHeight))
+  const x = Math.max(marginX, Math.min(box.x, viewport.width - marginX - w))
+  const y = Math.max(marginY, Math.min(box.y, viewport.height - marginY - h))
+  return withAutomationFloatOrigin({ x, y, w, h }, viewport)
+}
+
+export function initialAutomationFloatBox(
+  anchor?: AutomationFloatAnchor,
+  viewport = currentAutomationFloatViewport(),
+  initialHeight = FLOAT_DEFAULT_HEIGHT,
+): AutomationFloatBox {
+  const originLeft = viewport.offsetLeft ?? 0
+  const originTop = viewport.offsetTop ?? 0
+  const originViewport: AutomationFloatViewport = {
+    width: viewport.width,
+    height: viewport.height,
+    offsetLeft: originLeft,
+    offsetTop: originTop,
+  }
+  let box = clampAutomationFloatBox({
+    x: Math.round((viewport.width - FLOAT_DEFAULT_WIDTH) / 2),
+    y: Math.round((viewport.height - initialHeight) / 2),
+    w: FLOAT_DEFAULT_WIDTH,
+    h: initialHeight,
+  }, originViewport)
+  if (anchor === undefined) return box
+
+  let x = Math.round(anchor.right + FLOAT_MARGIN)
+  let y = Math.round(anchor.bottom + FLOAT_MARGIN)
+  const rightLimit = originLeft + viewport.width - FLOAT_MARGIN
+  const bottomLimit = originTop + viewport.height - FLOAT_MARGIN
+  if (x + box.w > rightLimit) x = Math.round(anchor.left - box.w - FLOAT_MARGIN)
+  if (y + box.h > bottomLimit) y = Math.round(anchor.top - box.h - FLOAT_MARGIN)
+  box = clampAutomationFloatBox({ ...box, x, y }, originViewport)
+  return box
+}
+
+function AutomationFloat({ label, busy, onClose, anchor, height, children }: {
   readonly label: string
   readonly busy: boolean
   readonly onClose: () => void
   readonly anchor: DOMRect | undefined
+  readonly height?: number
   readonly children: ReactNode
 }): JSX.Element {
-  const [box, setBox] = useState(() => initialFloatBox(anchor))
+  const [box, setBox] = useState(() => initialAutomationFloatBox(anchor, undefined, height))
   const dragRef = useRef<{
     readonly mode: 'move' | 'resize'
     readonly startX: number
@@ -198,6 +308,7 @@ function AutomationFloat({ label, busy, onClose, anchor, children }: {
     readonly w: number
     readonly h: number
   }>()
+  const dragCleanupRef = useRef<(() => void) | undefined>(undefined)
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent): void => {
@@ -209,12 +320,33 @@ function AutomationFloat({ label, busy, onClose, anchor, children }: {
     return () => { window.removeEventListener('keydown', onKeyDown) }
   }, [busy, onClose])
 
-  const clampBox = (value: { readonly x: number; readonly y: number; readonly w: number; readonly h: number }): void => {
-    const w = Math.max(480, Math.min(value.w, window.innerWidth - 24))
-    const h = Math.max(320, Math.min(value.h, window.innerHeight - 24))
-    const x = Math.max(0, Math.min(value.x, window.innerWidth - 160))
-    const y = Math.max(0, Math.min(value.y, window.innerHeight - 96))
-    setBox({ x, y, w, h })
+  useEffect(() => {
+    const reclamp = (): void => {
+      setBox(current => clampAutomationFloatBox(current, currentAutomationFloatViewport()))
+    }
+    const viewport = window.visualViewport
+    window.addEventListener('resize', reclamp)
+    viewport?.addEventListener('resize', reclamp)
+    viewport?.addEventListener('scroll', reclamp)
+    return () => {
+      window.removeEventListener('resize', reclamp)
+      viewport?.removeEventListener('resize', reclamp)
+      viewport?.removeEventListener('scroll', reclamp)
+      dragCleanupRef.current?.()
+    }
+  }, [])
+
+  const clampBox = (value: AutomationFloatBox): void => {
+    setBox(clampAutomationFloatBox(value, currentAutomationFloatViewport()))
+  }
+
+  /** Stop an in-flight drag when the window loses capture or the pointer is released elsewhere. */
+  const stopDrag = (): void => {
+    dragRef.current = undefined
+    const cleanup = dragCleanupRef.current
+    if (cleanup === undefined) return
+    dragCleanupRef.current = undefined
+    cleanup()
   }
 
   const onMoveStart = (event: ReactMouseEvent<HTMLDivElement>): void => {
@@ -233,13 +365,15 @@ function AutomationFloat({ label, busy, onClose, anchor, children }: {
         h: drag.h,
       })
     }
-    const onUp = (): void => {
-      dragRef.current = undefined
+    const cleanup = (): void => {
       window.removeEventListener('mousemove', onMove)
-      window.removeEventListener('mouseup', onUp)
+      window.removeEventListener('mouseup', stopDrag)
+      window.removeEventListener('blur', stopDrag)
     }
+    dragCleanupRef.current = cleanup
     window.addEventListener('mousemove', onMove)
-    window.addEventListener('mouseup', onUp)
+    window.addEventListener('mouseup', stopDrag)
+    window.addEventListener('blur', stopDrag)
   }
 
   const onResizeStart = (event: ReactMouseEvent<HTMLDivElement>): void => {
@@ -257,16 +391,18 @@ function AutomationFloat({ label, busy, onClose, anchor, children }: {
         h: drag.h + move.clientY - drag.startY,
       })
     }
-    const onUp = (): void => {
-      dragRef.current = undefined
+    const cleanup = (): void => {
       window.removeEventListener('mousemove', onMove)
-      window.removeEventListener('mouseup', onUp)
+      window.removeEventListener('mouseup', stopDrag)
+      window.removeEventListener('blur', stopDrag)
     }
+    dragCleanupRef.current = cleanup
     window.addEventListener('mousemove', onMove)
-    window.addEventListener('mouseup', onUp)
+    window.addEventListener('mouseup', stopDrag)
+    window.addEventListener('blur', stopDrag)
   }
 
-  return (
+  const dialog = (
     <div
       className="dsh-automation-float"
       role="dialog"
@@ -279,6 +415,7 @@ function AutomationFloat({ label, busy, onClose, anchor, children }: {
       <div className="dsh-automation-float-resize" aria-hidden="true" onMouseDown={onResizeStart} />
     </div>
   )
+  return typeof document === 'undefined' ? dialog : createPortal(dialog, document.body)
 }
 
 type AutomationFormProps = FormCommonProps & ({
@@ -304,6 +441,11 @@ function AutomationForm(props: AutomationFormProps): JSX.Element {
   const [catalogLoading, setCatalogLoading] = useState(true)
   const [catalogGeneration, setCatalogGeneration] = useState(0)
   const zoneSelect = useRef<HTMLSelectElement>(null)
+  const nameInput = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    nameInput.current?.focus({ preventScroll: true })
+  }, [])
 
   useEffect(() => {
     let live = true
@@ -402,7 +544,7 @@ function AutomationForm(props: AutomationFormProps): JSX.Element {
       <div className="dsh-automation-form-grid">
         <label className="dsh-automation-field">
           <span>{t('form.name')}</span>
-          <input value={form.name} maxLength={80} placeholder={t('form.namePlaceholder')} autoFocus onChange={event => update('name', event.currentTarget.value)} />
+          <input ref={nameInput} value={form.name} maxLength={80} placeholder={t('form.namePlaceholder')} onChange={event => update('name', event.currentTarget.value)} />
         </label>
         <label className="dsh-automation-field dsh-automation-field--wide">
           <span>{t('form.prompt')}<small className="dsh-automation-field-note">{t('form.subtitle')}</small></span>
@@ -614,6 +756,236 @@ function AutomationForm(props: AutomationFormProps): JSX.Element {
   )
 }
 
+interface AutomationSettingsPanelProps {
+  readonly t: Translate
+  readonly settings: AutomationSettingsView
+  readonly busy: boolean
+  readonly saveError?: string | undefined
+  readonly onCancel: () => void
+  readonly onSubmit: (next: SettingsUpdateInput) => Promise<void>
+}
+
+/** Host-wide preferences; the entry point for future custom automation options. */
+const WAIT_PRESET_VALUES: readonly number[] = [30, 60, 300, 720, 1_440, 525_600]
+const CUSTOM_WAIT = -1
+
+function waitOptionKey(minutes: number): AutomationLocaleKey {
+  switch (minutes) {
+    case 30: return 'settings.missedRuns.waitOpt.m30'
+    case 60: return 'settings.missedRuns.waitOpt.h1'
+    case 300: return 'settings.missedRuns.waitOpt.h5'
+    case 720: return 'settings.missedRuns.waitOpt.h12'
+    case 1_440: return 'settings.missedRuns.waitOpt.h24'
+    default: return 'settings.missedRuns.waitOpt.forever'
+  }
+}
+
+/** Whether the stored wait (minutes) is one of the offered presets. */
+function waitPresetValue(value: number): number | undefined {
+  return WAIT_PRESET_VALUES.find(candidate => candidate === value)
+}
+
+function AutomationSettingsPanel(props: AutomationSettingsPanelProps): JSX.Element {
+  const { t, settings, busy, saveError, onCancel, onSubmit } = props
+  const [open, setOpen] = useState(true)
+  const [catchUpMissedRuns, setCatchUpMissedRuns] = useState(settings.catchUpMissedRuns)
+  const [waitChoice, setWaitChoice] = useState<number>(() => (
+    waitPresetValue(settings.misfireGraceMinutes) ?? CUSTOM_WAIT
+  ))
+  const [customWait, setCustomWait] = useState(() => String(Math.max(1, settings.misfireGraceMinutes)))
+  const [catchUpMax, setCatchUpMax] = useState(String(settings.catchUpMissedRunsMax))
+  const [validationError, setValidationError] = useState<string>()
+
+  const submit = (event: FormEvent): void => {
+    event.preventDefault()
+    setValidationError(undefined)
+    const max = Number.parseInt(catchUpMax, 10)
+    if (!Number.isInteger(max) || max < 1 || max > 1_000) {
+      setValidationError(t('settings.missedRuns.errorMax'))
+      return
+    }
+    const wait = waitChoice === CUSTOM_WAIT ? Number.parseInt(customWait, 10) : waitChoice
+    if (waitChoice === CUSTOM_WAIT && (!Number.isInteger(wait) || wait < 1 || wait > 525_600)) {
+      setValidationError(t('settings.missedRuns.errorCustomWait'))
+      return
+    }
+    void onSubmit({
+      catchUpMissedRuns,
+      catchUpMissedRunsMax: max,
+      // "Mark only" never replays: it stores a near-zero grace so any late
+      // occurrence is immediately marked as missed.
+      misfireGraceMinutes: catchUpMissedRuns ? wait : 1,
+    })
+  }
+
+  return (
+    <form className="dsh-automation-create" onSubmit={submit}>
+      <div className="dsh-automation-create-heading">
+        <h2>{t('settings.title')}</h2>
+        <button className="dsh-automation-button dsh-automation-button--ghost" type="button" onClick={onCancel} disabled={busy}>
+          {t('form.cancel')}
+        </button>
+      </div>
+
+      <div className="dsh-automation-form-grid">
+        <section className="dsh-automation-settings-section dsh-automation-field--wide">
+          <button
+            type="button"
+            className="dsh-automation-settings-section-head"
+            aria-expanded={open}
+            onClick={() => setOpen(current => !current)}
+          >
+            <ChevronIcon className="dsh-automation-chevron" />
+            <h3>{t('settings.missedRuns.title')}</h3>
+          </button>
+          {open && (
+            <div className="dsh-automation-settings-section-body">
+              <p className="dsh-automation-settings-lead">{t('settings.missedRuns.lead')}</p>
+              <label className="dsh-automation-field">
+                <span>{t('settings.missedRuns.strategy')}</span>
+                <select
+                  value={catchUpMissedRuns ? 'catch-up' : 'skip'}
+                  onChange={event => setCatchUpMissedRuns(event.currentTarget.value === 'catch-up')}
+                >
+                  <option value="catch-up">{t('settings.missedRuns.strategyCatchUp')}</option>
+                  <option value="skip">{t('settings.missedRuns.strategySkip')}</option>
+                </select>
+              </label>
+              {catchUpMissedRuns ? (
+                <>
+                  <label className="dsh-automation-field">
+                    <span>{t('settings.missedRuns.waitLabel')}</span>
+                    <select
+                      value={waitChoice}
+                      onChange={event => setWaitChoice(Number(event.currentTarget.value))}
+                    >
+                      {WAIT_PRESET_VALUES.map(minutes => (
+                        <option key={minutes} value={minutes}>{t(waitOptionKey(minutes))}</option>
+                      ))}
+                      <option value={CUSTOM_WAIT}>{t('settings.missedRuns.waitOpt.custom')}</option>
+                    </select>
+                    {waitChoice === CUSTOM_WAIT && (
+                      <span className="dsh-automation-inline-input">
+                        <input
+                          type="number"
+                          min={1}
+                          max={525_600}
+                          step={1}
+                          value={customWait}
+                          onChange={event => setCustomWait(event.currentTarget.value)}
+                        />
+                        <span>{t('settings.missedRuns.waitUnitMin')}</span>
+                      </span>
+                    )}
+                    <small>{t('settings.missedRuns.waitHint')}</small>
+                  </label>
+                  <label className="dsh-automation-field">
+                    <span>{t('settings.missedRuns.maxLabel')}</span>
+                    <span className="dsh-automation-inline-input">
+                      <input
+                        type="number"
+                        min={1}
+                        max={1_000}
+                        step={1}
+                        value={catchUpMax}
+                        onChange={event => setCatchUpMax(event.currentTarget.value)}
+                      />
+                      <span>{t('settings.missedRuns.times')}</span>
+                    </span>
+                    <small>{t('settings.missedRuns.maxHint')}</small>
+                  </label>
+                </>
+              ) : (
+                <p className="dsh-automation-settings-lead">{t('settings.missedRuns.skipBody')}</p>
+              )}
+            </div>
+          )}
+        </section>
+      </div>
+
+      <div className="dsh-automation-form-footer">
+        <span className="dsh-automation-form-error" role="alert">{validationError ?? saveError}</span>
+        <button className="dsh-automation-button dsh-automation-button--primary" type="submit" disabled={busy}>
+          <CheckIcon />
+          {busy ? t('settings.saving') : t('settings.save')}
+        </button>
+      </div>
+    </form>
+  )
+}
+
+interface AutomationRunDialogProps {
+  readonly t: Translate
+  readonly automation: AutomationViewModel
+  readonly busy: boolean
+  readonly onCancel: () => void
+  readonly onRun: (automationId: string, mode: RunNowMode) => Promise<void>
+}
+
+/** Ask how a manual run should treat the pending schedule: replace it or leave it. */
+function AutomationRunDialog(props: AutomationRunDialogProps): JSX.Element {
+  const { t, automation, busy, onCancel, onRun } = props
+  const canAhead = automation.nextRunAt !== undefined
+  const [mode, setMode] = useState<RunNowMode>('ahead')
+  const chosen = canAhead ? mode : 'plain'
+  const submit = (event: FormEvent): void => {
+    event.preventDefault()
+    void onRun(automation.id, chosen)
+  }
+  return (
+    <form className="dsh-automation-create dsh-automation-run-dialog" onSubmit={submit}>
+      <div className="dsh-automation-create-heading">
+        <h2>{t('run.title')}</h2>
+        <p>{automation.name}</p>
+        <button className="dsh-automation-button dsh-automation-button--ghost" type="button" onClick={onCancel} disabled={busy}>
+          {t('form.cancel')}
+        </button>
+      </div>
+
+      <div className="dsh-automation-form-grid">
+        <div className="dsh-automation-permission-grid dsh-automation-field--wide">
+          <label className={chosen === 'ahead' ? 'is-selected' : ''}>
+            <input
+              type="radio"
+              name="run-mode"
+              value="ahead"
+              checked={chosen === 'ahead'}
+              disabled={!canAhead}
+              onChange={() => setMode('ahead')}
+            />
+            <span>
+              <strong>{t('run.ahead')}</strong>
+              <small>{t('run.aheadHint')}</small>
+            </span>
+          </label>
+          <label className={chosen === 'plain' ? 'is-selected' : ''}>
+            <input
+              type="radio"
+              name="run-mode"
+              value="plain"
+              checked={chosen === 'plain'}
+              onChange={() => setMode('plain')}
+            />
+            <span>
+              <strong>{t('run.plain')}</strong>
+              <small>{t('run.plainHint')}</small>
+            </span>
+          </label>
+        </div>
+        {!canAhead && <p className="dsh-automation-settings-lead dsh-automation-field--wide">{t('run.noPlan')}</p>}
+      </div>
+
+      <div className="dsh-automation-form-footer">
+        <span />
+        <button className="dsh-automation-button dsh-automation-button--primary" type="submit" disabled={busy}>
+          <PlayIcon />
+          {busy ? t('settings.saving') : t('run.confirm')}
+        </button>
+      </div>
+    </form>
+  )
+}
+
 interface AutomationCardProps {
   readonly automation: AutomationViewModel
   readonly now: Date
@@ -623,12 +995,13 @@ interface AutomationCardProps {
   readonly onConfirmDelete: (id?: string) => void
   readonly onEdit: (automation: AutomationViewModel, anchor?: DOMRect) => void
   readonly onMutate: (id: string, mutation: 'pause' | 'resume' | 'delete') => void
-  readonly onRun: (id: string) => void
+  readonly onRun: (automation: AutomationViewModel, anchor?: DOMRect) => void
 }
 
 function AutomationCard(props: AutomationCardProps): JSX.Element {
   const { automation, now, t, busyKey, confirmingDelete, onConfirmDelete, onEdit, onMutate, onRun } = props
   const isBusy = busyKey?.endsWith(`:${automation.id}`) === true
+  const fulfilled = isFulfilledAutomation(automation)
   return (
     <article className="dsh-automation-card">
       <div className="dsh-automation-card-top">
@@ -637,7 +1010,14 @@ function AutomationCard(props: AutomationCardProps): JSX.Element {
           <div>
             <h3>{automation.name}</h3>
             <div className="dsh-automation-card-badges">
-              <AutomationStatusBadge status={automation.status} t={t} />
+              {fulfilled ? (
+                <span className="dsh-automation-badge dsh-automation-badge--executed">
+                  <span className="dsh-automation-status-dot" />
+                  {t('card.executed')}
+                </span>
+              ) : (
+                <AutomationStatusBadge status={automation.status} t={t} />
+              )}
               <span className="dsh-automation-permission-badge"><ShieldIcon />{t(`card.permission.${automation.permission}`)}</span>
               <span className="dsh-automation-model-badge">
                 {automation.provider === null || automation.model === null
@@ -671,13 +1051,15 @@ function AutomationCard(props: AutomationCardProps): JSX.Element {
             ? t('card.nextRunPaused')
             : automation.nextRunAt !== undefined
               ? formatRelativeTime(automation.nextRunAt, now, t)
-              : '—'}</dd>
+              : fulfilled
+                ? <><span className="dsh-automation-mini-dot" />{t('card.executed')}</>
+                : '—'}</dd>
         </div>
         <div>
           <dt>{t('card.lastRun')}</dt>
           <dd>{automation.lastRunAt === undefined
             ? t('card.never')
-            : <><span className={`dsh-automation-mini-dot dsh-automation-mini-dot--${automation.lastRunStatus ?? 'succeeded'}`} />{formatRelativeTime(automation.lastRunAt, now, t)}</>}</dd>
+            : <><span className={`dsh-automation-mini-dot${fulfilled ? '' : ` dsh-automation-mini-dot--${automation.lastRunStatus ?? 'succeeded'}`}`} />{formatRelativeTime(automation.lastRunAt, now, t)}</>}</dd>
         </div>
       </dl>
 
@@ -694,13 +1076,15 @@ function AutomationCard(props: AutomationCardProps): JSX.Element {
           <button className="dsh-automation-button dsh-automation-button--ghost" type="button" onClick={(event) => onEdit(automation, event.currentTarget.getBoundingClientRect())} disabled={isBusy}>
             <PencilIcon />{t('card.edit')}
           </button>
-          <button className="dsh-automation-button dsh-automation-button--ghost" type="button" onClick={() => onRun(automation.id)} disabled={isBusy}>
-            <PlayIcon />{t('card.runNow')}
+          <button className="dsh-automation-button dsh-automation-button--ghost" type="button" onClick={(event) => onRun(automation, event.currentTarget.getBoundingClientRect())} disabled={isBusy}>
+            <PlayIcon />{t(automation.lastRunAt === undefined ? 'card.runNow' : 'card.runAgain')}
           </button>
-          <button className="dsh-automation-button dsh-automation-button--ghost" type="button" onClick={() => onMutate(automation.id, automation.status === 'active' ? 'pause' : 'resume')} disabled={isBusy}>
-            {automation.status === 'active' ? <PauseIcon /> : <PlayIcon />}
-            {t(automation.status === 'active' ? 'card.pause' : 'card.resume')}
-          </button>
+          {!fulfilled && (
+            <button className="dsh-automation-button dsh-automation-button--ghost" type="button" onClick={() => onMutate(automation.id, automation.status === 'active' ? 'pause' : 'resume')} disabled={isBusy}>
+              {automation.status === 'active' ? <PauseIcon /> : <PlayIcon />}
+              {t(automation.status === 'active' ? 'card.pause' : 'card.resume')}
+            </button>
+          )}
           <button className="dsh-automation-icon-button" type="button" aria-label={t('card.delete')} title={t('card.delete')} onClick={() => onConfirmDelete(automation.id)} disabled={isBusy}>
             <TrashIcon />
           </button>
@@ -792,10 +1176,12 @@ export function RecentRun({ run, now, t, busy, automationMissing, confirmingDele
 /** Native conversation view: all data and effects arrive through the slot's four shares. */
 export function AutomationView({
   t, useAutomationState, refresh, createAutomation, updateAutomation, mutateAutomation, runNow, markRunRead,
-  deleteRun, loadModelCatalog, openSession, refreshSessions,
+  deleteRun, updateSettings, loadModelCatalog, openSession, refreshSessions,
 }: AutomationViewProps): JSX.Element {
   const state = useAutomationState(value => value)
   const [showCreate, setShowCreate] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [runNowTarget, setRunNowTarget] = useState<AutomationViewModel>()
   const [editingAutomation, setEditingAutomation] = useState<AutomationViewModel>()
   const [busyKey, setBusyKey] = useState<string>()
   const [actionError, setActionError] = useState<string>()
@@ -804,7 +1190,11 @@ export function AutomationView({
   const [sortKey, setSortKey] = useState<AutomationSortKey>(() => readSortDefault(SORT_STORAGE, WORKSPACE_SORT_DEFAULT_KEY)?.key ?? 'created')
   const [sortDirection, setSortDirection] = useState<AutomationSortDirection>(() => readSortDefault(SORT_STORAGE, WORKSPACE_SORT_DEFAULT_KEY)?.direction ?? 'desc')
   const [taskView, setTaskView] = useState<TaskView>('today')
-  const [rangeView, setRangeView] = useState<CalendarRangeView>('list')
+  const [rangeView, setRangeView] = useState<CalendarRangeView>(() => {
+    if (SORT_STORAGE === undefined) return 'week'
+    const raw = SORT_STORAGE.getItem(WORKSPACE_RANGE_DEFAULT_KEY)
+    return raw === 'week' || raw === 'month' || raw === 'list' ? raw : 'week'
+  })
   const [calendarCursor, setCalendarCursor] = useState<Date>()
   const [selectedDate, setSelectedDate] = useState<Date>()
   const [draft, setDraft] = useState<AutomationFormState | undefined>(undefined)
@@ -813,6 +1203,8 @@ export function AutomationView({
   const draftRef = useRef<{ form: AutomationFormState | undefined }>({ form: undefined })
   const createAnchorRef = useRef<DOMRect | undefined>(undefined)
   const editAnchorRef = useRef<DOMRect | undefined>(undefined)
+  const runNowAnchorRef = useRef<DOMRect | undefined>(undefined)
+  const settingsAnchorRef = useRef<DOMRect | undefined>(undefined)
   const runsSignatureRef = useRef('')
   const phaseRef = useRef(state.phase)
   phaseRef.current = state.phase
@@ -886,13 +1278,46 @@ export function AutomationView({
         ?? (automation.status === 'paused' ? plannedNextRun(automation.schedule, automation.createdAt, now) : undefined)
       return next === undefined ? automation : { ...automation, nextRunAt: next }
     })
+    // All tasks stay in the list; fulfilled one-shots sort to the bottom
+    // (no next run) and are marked as executed, not removed.
     return sortAutomations(normalized, sortKey, sortDirection)
   }, [snapshot, now, sortDirection, sortKey])
+  // Fulfilled one-shots: succeeded and no pending schedule left. They stay
+  // visible but are excluded from the pending counts.
+  const doneCount = useMemo(() => (
+    snapshot === undefined ? 0 : snapshot.automations.filter(isFulfilledAutomation).length
+  ), [snapshot])
+  // 启用只统计仍待执行的任务：已执行的一次性任务不再计入启用。
+  const activeCount = useMemo(() => (
+    automations.filter(item => item.status === 'active' && !isFulfilledAutomation(item)).length
+  ), [automations])
+  const pausedCount = useMemo(() => (
+    automations.filter(item => item.status === 'paused').length
+  ), [automations])
   const todayStart = useMemo(() => startOfLocalDay(now), [now])
-  const todayAutomations = useMemo(() => (
-    automations.filter(automation => automation.nextRunAt !== undefined
-      && isSameLocalDay(new Date(automation.nextRunAt), todayStart))
-  ), [automations, todayStart])
+  // One day's task list: runs pending that day, then tasks finished that day
+  // (marked executed). Mirrors the Today view for any picked calendar day.
+  const buildDayList = (day: Date): AutomationViewModel[] => {
+    const onDay = (iso: string | undefined): boolean => (
+      iso !== undefined && isSameLocalDay(new Date(iso), day)
+    )
+    const pending = automations.filter(automation => onDay(automation.nextRunAt))
+    const finished = automations
+      .filter(automation => isFulfilledAutomation(automation) && onDay(automation.lastRunAt))
+      .sort((left, right) => String(right.lastRunAt ?? '').localeCompare(String(left.lastRunAt ?? '')))
+    return [...sortAutomations(pending, sortKey, sortDirection), ...finished]
+  }
+  const todayAutomations = useMemo(
+    () => buildDayList(todayStart),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [automations, sortDirection, sortKey, todayStart],
+  )
+  const todayPendingCount = useMemo(() => {
+    const isOnToday = (iso: string | undefined): boolean => (
+      iso !== undefined && isSameLocalDay(new Date(iso), todayStart)
+    )
+    return automations.filter(automation => isOnToday(automation.nextRunAt)).length
+  }, [automations, todayStart])
   const calendarAnchor = calendarCursor ?? startOfLocalWeek(todayStart)
   const pickedDate = selectedDate ?? todayStart
   const weekDays = useMemo(() => buildWeekCalendarDays(calendarAnchor), [calendarAnchor])
@@ -900,16 +1325,32 @@ export function AutomationView({
   const calendarTitleDate = rangeView === 'week' ? weekDays[3] ?? calendarAnchor : calendarAnchor
   const calendarTitleYear = calendarTitleDate.getFullYear()
   const calendarTitleMonth = calendarTitleDate.getMonth() + 1
+  const dayAutomations = useMemo(
+    () => buildDayList(pickedDate),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [automations, pickedDate, sortDirection, sortKey],
+  )
   const visibleAutomations = useMemo(() => {
     if (taskView === 'today') return todayAutomations
     if (rangeView === 'list') return automations
-    return automations.filter(automation => automation.nextRunAt !== undefined
-      && isSameLocalDay(new Date(automation.nextRunAt), pickedDate))
-  }, [automations, pickedDate, rangeView, taskView, todayAutomations])
-  const automationIdSet = useMemo(() => new Set(automations.map(item => item.id)), [automations])
+    return dayAutomations
+  }, [dayAutomations, rangeView, taskView, todayAutomations])
+  // Executed cards stay in the view but render below the create button.
+  const visiblePending = useMemo(() => (
+    visibleAutomations.filter(automation => !isFulfilledAutomation(automation))
+  ), [visibleAutomations])
+  const visibleExecuted = useMemo(() => (
+    visibleAutomations.filter(isFulfilledAutomation)
+  ), [visibleAutomations])
+  const automationIdSet = useMemo(() => (
+    new Set((snapshot?.automations ?? []).map(item => item.id))
+  ), [snapshot])
 
   const selectRange = (range: CalendarRangeView): void => {
     setRangeView(range)
+    if (SORT_STORAGE !== undefined) {
+      try { SORT_STORAGE.setItem(WORKSPACE_RANGE_DEFAULT_KEY, range) } catch { /* best effort */ }
+    }
     if (range === 'week') setCalendarCursor(startOfLocalWeek(pickedDate))
     if (range === 'month') setCalendarCursor(new Date(pickedDate.getFullYear(), pickedDate.getMonth(), 1))
   }
@@ -985,8 +1426,17 @@ export function AutomationView({
       }
     })
   }
-  const onRun = (id: string): void => {
-    void perform(actionKey('run', id), () => runNow(id))
+  const onRun = (automation: AutomationViewModel, anchor?: DOMRect): void => {
+    setRunNowTarget(automation)
+    runNowAnchorRef.current = anchor
+  }
+  const onRunNow = async (automationId: string, mode: RunNowMode): Promise<void> => {
+    let started = false
+    await perform(actionKey('run', automationId), async () => {
+      await runNow(automationId, mode)
+      started = true
+    })
+    if (started) setRunNowTarget(undefined)
   }
   const onOpenSession = (runId: string, sessionId: string): void => {
     void perform(actionKey('run', runId), () => openSession(runId, sessionId))
@@ -1046,6 +1496,25 @@ export function AutomationView({
     setConfirmDeleteId(undefined)
     editAnchorRef.current = anchor
     setEditingAutomation(automation)
+  }
+  const openSettings = (event: ReactMouseEvent<HTMLElement>): void => {
+    if (settingsOpen) {
+      setSettingsOpen(false)
+      return
+    }
+    setEditingAutomation(undefined)
+    settingsAnchorRef.current = event.currentTarget.getBoundingClientRect()
+    setSettingsOpen(true)
+  }
+  const onSaveSettings = async (next: SettingsUpdateInput): Promise<void> => {
+    let saved = false
+    await perform(actionKey('settings'), async () => {
+      await updateSettings(next)
+      saved = true
+    })
+    // Only close on success so a rejected save keeps the panel and its error
+    // visible instead of silently reverting to the previous values.
+    if (saved) setSettingsOpen(false)
   }
 
   if (snapshot === undefined && (state.phase === 'idle' || state.phase === 'loading')) {
@@ -1150,6 +1619,49 @@ export function AutomationView({
         </AutomationFloat>
       )}
 
+      {settingsOpen && (
+        <AutomationFloat label={t('settings.title')} busy={busyKey === actionKey('settings')} onClose={() => setSettingsOpen(false)} anchor={settingsAnchorRef.current}>
+          {snapshot.settings === undefined ? (
+            <div className="dsh-automation-create">
+              <div className="dsh-automation-create-heading">
+                <h2>{t('settings.title')}</h2>
+                <button className="dsh-automation-button dsh-automation-button--ghost" type="button" onClick={() => setSettingsOpen(false)}>
+                  {t('form.cancel')}
+                </button>
+              </div>
+              <p className="dsh-automation-settings-lead">{t('settings.unavailable')}</p>
+            </div>
+          ) : (
+            <AutomationSettingsPanel
+              t={t}
+              settings={snapshot.settings}
+              busy={busyKey === actionKey('settings')}
+              saveError={actionError}
+              onCancel={() => setSettingsOpen(false)}
+              onSubmit={onSaveSettings}
+            />
+          )}
+        </AutomationFloat>
+      )}
+
+      {runNowTarget !== undefined && (
+        <AutomationFloat
+          label={t('run.title')}
+          busy={busyKey === actionKey('run', runNowTarget.id)}
+          onClose={() => setRunNowTarget(undefined)}
+          anchor={runNowAnchorRef.current}
+          height={FLOAT_MIN_HEIGHT}
+        >
+          <AutomationRunDialog
+            t={t}
+            automation={runNowTarget}
+            busy={busyKey === actionKey('run', runNowTarget.id)}
+            onCancel={() => setRunNowTarget(undefined)}
+            onRun={onRunNow}
+          />
+        </AutomationFloat>
+      )}
+
       {(actionError !== undefined || (state.error !== undefined && state.phase !== 'unavailable')) && (
         <div className="dsh-automation-inline-error" role="alert"><AlertIcon />{actionError ?? state.error}</div>
       )}
@@ -1160,16 +1672,21 @@ export function AutomationView({
             <div className="dsh-automation-toolbar-row">
               <div className="dsh-automation-view-switch" role="group">
                 <button type="button" className={taskView === 'today' ? 'is-selected' : ''} aria-pressed={taskView === 'today'} onClick={() => setTaskView('today')}>
-                  <span>{t('view.todayTasks')}</span><b>{todayAutomations.length}</b>
+                  <span>{t('view.todayTasks')}</span><b>{todayPendingCount}</b>
                 </button>
                 <button type="button" className={taskView === 'all' ? 'is-selected' : ''} aria-pressed={taskView === 'all'} onClick={() => setTaskView('all')}>
-                  <span>{t('view.allTasks')}</span><b>{automations.length}</b>
+                  <span>{t('view.allTasks')}</span><b>{Math.max(0, automations.length - doneCount)}</b>
                 </button>
               </div>
               <div className="dsh-automation-status-summary">
-                <span><b>{t('stats.active')}</b>{stats?.active ?? 0}</span>
-                <span><b>{t('stats.paused')}</b>{(stats?.total ?? 0) - (stats?.active ?? 0)}</span>
-                <span><b>{t('stats.next')}</b>{stats?.nextRunAt === undefined ? t('stats.noneScheduled') : formatRelativeTime(stats.nextRunAt, now, t)}</span>
+                <div className="dsh-automation-status-column">
+                  <span className="dsh-automation-status-item"><b>{t('stats.active')}</b><em>{activeCount}</em></span>
+                  <span className="dsh-automation-status-item"><b>{t('stats.paused')}</b><em>{pausedCount}</em></span>
+                </div>
+                <div className="dsh-automation-status-column">
+                  <span className="dsh-automation-status-item"><b>{t('stats.executed')}</b><em>{doneCount}</em></span>
+                  <span className="dsh-automation-status-item"><b>{t('stats.next')}</b><em>{stats?.nextRunAt === undefined ? t('stats.noneScheduled') : formatRelativeTime(stats.nextRunAt, now, t)}</em></span>
+                </div>
               </div>
               <div className="dsh-automation-toolbar-actions">
                 <button className="dsh-automation-button dsh-automation-button--primary" type="button" onClick={toggleCreate}>
@@ -1182,7 +1699,7 @@ export function AutomationView({
               <div className="dsh-automation-toolbar-controls">
               {taskView === 'all' && (
                 <div className="dsh-automation-range-switch" role="group" aria-label={t('view.allTasks')}>
-                  {(['list', 'week', 'month'] as const).map(range => (
+                  {(['week', 'month', 'list'] as const).map(range => (
                     <button key={range} type="button" className={rangeView === range ? 'is-selected' : ''} aria-pressed={rangeView === range} onClick={() => selectRange(range)}>
                       {t(`view.${range}`)}
                     </button>
@@ -1226,6 +1743,7 @@ export function AutomationView({
                     <div className="dsh-automation-cal-week">
                       {weekDays.map(day => {
                         const counts = countAutomationsByStatusOnDay(automations, day)
+                        const executed = countExecutedOnDay(automations, day)
                         const weekday = day.getDay() === 0 ? 7 : day.getDay()
                         return (
                           <button key={day.toISOString()} type="button" className={`dsh-automation-cal-day${isSameLocalDay(day, todayStart) ? ' is-today' : ''}${isSameLocalDay(day, pickedDate) ? ' is-selected' : ''}`} onClick={() => selectDay(day)}>
@@ -1233,6 +1751,7 @@ export function AutomationView({
                             <span className="dsh-automation-cal-date">{day.getMonth() + 1}/{day.getDate()}</span>
                             {counts.active > 0 && <span className="dsh-automation-cal-count">{t('calendar.taskCount', { count: counts.active })}</span>}
                             {counts.paused > 0 && <span className="dsh-automation-cal-count dsh-automation-cal-count--paused">{t('calendar.pausedCount', { count: counts.paused })}</span>}
+                            {executed > 0 && <span className="dsh-automation-cal-count dsh-automation-cal-count--executed">{t('calendar.executedCount', { count: executed })}</span>}
                           </button>
                         )
                       })}
@@ -1247,12 +1766,14 @@ export function AutomationView({
                       <div className="dsh-automation-cal-month-grid">
                         {monthDays.map(day => {
                           const counts = countAutomationsByStatusOnDay(automations, day)
+                          const executed = countExecutedOnDay(automations, day)
                           const otherMonth = day.getMonth() !== calendarAnchor.getMonth()
                           return (
                             <button key={day.toISOString()} type="button" className={`dsh-automation-cal-month-day${otherMonth ? ' is-other' : ''}${isSameLocalDay(day, todayStart) ? ' is-today' : ''}${isSameLocalDay(day, pickedDate) ? ' is-selected' : ''}`} onClick={() => selectDay(day)}>
                               <span className="dsh-automation-cal-month-date">{day.getDate()}</span>
                               {counts.active > 0 && <span className="dsh-automation-cal-count">{t('calendar.taskCount', { count: counts.active })}</span>}
                               {counts.paused > 0 && <span className="dsh-automation-cal-count dsh-automation-cal-count--paused">{t('calendar.pausedCount', { count: counts.paused })}</span>}
+                              {executed > 0 && <span className="dsh-automation-cal-count dsh-automation-cal-count--executed">{t('calendar.executedCount', { count: executed })}</span>}
                             </button>
                           )
                         })}
@@ -1278,8 +1799,35 @@ export function AutomationView({
               <button className="dsh-automation-button dsh-automation-button--primary" type="button" onClick={openCreate}>{showCreate ? <><PauseIcon />{t('header.closeCreate')}</> : <><PlusIcon />{t('header.create')}</>}</button>
             </div>
           ) : (
+            visiblePending.length > 0 && (
+              <div className="dsh-automation-card-list">
+                {visiblePending.map(automation => (
+                  <AutomationCard
+                    key={automation.id}
+                    automation={automation}
+                    now={now}
+                    t={t}
+                    busyKey={busyKey}
+                    confirmingDelete={confirmDeleteId === automation.id}
+                    onConfirmDelete={setConfirmDeleteId}
+                    onEdit={onEdit}
+                    onMutate={onMutate}
+                    onRun={onRun}
+                  />
+                ))}
+              </div>
+            )
+          )}
+
+          {visibleAutomations.length > 0 && (
+            <div className="dsh-automation-empty dsh-automation-empty--footer">
+              <button className="dsh-automation-button dsh-automation-button--primary" type="button" onClick={openCreate}>{showCreate ? <><PauseIcon />{t('header.closeCreate')}</> : <><PlusIcon />{t('header.create')}</>}</button>
+            </div>
+          )}
+
+          {visibleExecuted.length > 0 && (
             <div className="dsh-automation-card-list">
-              {visibleAutomations.map(automation => (
+              {visibleExecuted.map(automation => (
                 <AutomationCard
                   key={automation.id}
                   automation={automation}
@@ -1293,12 +1841,6 @@ export function AutomationView({
                   onRun={onRun}
                 />
               ))}
-            </div>
-          )}
-
-          {visibleAutomations.length > 0 && (
-            <div className="dsh-automation-empty dsh-automation-empty--footer">
-              <button className="dsh-automation-button dsh-automation-button--primary" type="button" onClick={openCreate}>{showCreate ? <><PauseIcon />{t('header.closeCreate')}</> : <><PlusIcon />{t('header.create')}</>}</button>
             </div>
           )}
         </section>
@@ -1315,6 +1857,14 @@ export function AutomationView({
                   {(stats?.attention ?? 0) > 0 && <b>{stats?.attention ?? 0}</b>}
                 </span>
               </span>
+              <button
+                className="dsh-automation-runs-settings"
+                type="button"
+                onClick={openSettings}
+              >
+                <GearIcon />
+                <span>{t('settings.open')}</span>
+              </button>
             </div>
             {snapshot.runs.length === 0
               ? <div className="dsh-automation-runs-empty">{t('runs.empty')}</div>

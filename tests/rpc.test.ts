@@ -25,6 +25,7 @@ test('snapshot marks archived run Sessions so the client never offers a broken o
         summary: 'No regression found.', error: null, unread: false,
       }],
     }),
+    settings: () => ({ catchUpMissedRuns: false, catchUpMissedRunsMax: 30, misfireGraceMinutes: 15 }),
   }
   registerAutomationRpc(ctx as never, service as never)
 
@@ -43,6 +44,7 @@ test('snapshot marks archived run Sessions so the client never offers a broken o
         promptSnapshot: 'Inspect one condition.',
         provider: null, model: null, reasoningEffort: null, permission: 'read-only',
       }],
+      settings: { catchUpMissedRuns: false, catchUpMissedRunsMax: 30, misfireGraceMinutes: 15 },
       serverNow: '2026-08-17T00:00:00.000Z',
     },
   })
@@ -70,14 +72,19 @@ test('snapshot exposes the complete durable model target to the Web client', asy
       }],
       runs: [],
     }),
+    settings: () => ({ catchUpMissedRuns: true, catchUpMissedRunsMax: 7, misfireGraceMinutes: 45 }),
   }
   registerAutomationRpc(ctx as never, service as never)
 
   const response = await handler?.('snapshot', { sessionId: 'session-source' }, new AbortController().signal) as {
     readonly ok: true
-    readonly value: { readonly automations: readonly Record<string, unknown>[] }
+    readonly value: {
+      readonly automations: readonly Record<string, unknown>[]
+      readonly settings: Record<string, unknown>
+    }
   }
   assert.equal(response.ok, true)
+  assert.deepEqual(response.value.settings, { catchUpMissedRuns: true, catchUpMissedRunsMax: 7, misfireGraceMinutes: 45 })
   assert.deepEqual(response.value.automations[0], {
     id: 'automation-pinned', revision: 1, name: 'Pinned task', prompt: 'Inspect one condition.', status: 'active',
     schedule: { kind: 'daily', time: '09:00', timeZone: 'UTC' },
@@ -326,4 +333,88 @@ test('update RPC replaces editable fields behind an expected revision guard', as
     },
     signal,
   }])
+})
+
+test('settings-update validates ranges and forwards scoped policy writes', async () => {
+  let handler: ((endpoint: string, payload: unknown, signal: AbortSignal) => Promise<unknown>) | undefined
+  const ctx = {
+    connection: { rpc: { handle: (_channel: string, value: typeof handler) => { handler = value; return async () => {} } } },
+  }
+  const calls: Array<{ scope: unknown; next: unknown }> = []
+  const service = {
+    updateSettings: async (scope: unknown, next: unknown) => { calls.push({ scope, next }); return next },
+  }
+  registerAutomationRpc(ctx as never, service as never)
+  const signal = new AbortController().signal
+
+  const response = await handler?.('settings-update', {
+    sessionId: 'session-source',
+    settings: { catchUpMissedRuns: true, catchUpMissedRunsMax: 9, misfireGraceMinutes: 30 },
+  }, signal)
+  assert.deepEqual(response, {
+    ok: true,
+    value: { settings: { catchUpMissedRuns: true, catchUpMissedRunsMax: 9, misfireGraceMinutes: 30 } },
+  })
+  assert.deepEqual(calls, [{
+    scope: { sessionId: 'session-source', creatorKind: 'web' },
+    next: { catchUpMissedRuns: true, catchUpMissedRunsMax: 9, misfireGraceMinutes: 30 },
+  }])
+
+  const rejected = await handler?.('settings-update', {
+    sessionId: 'session-source',
+    settings: { catchUpMissedRuns: true, catchUpMissedRunsMax: 2_000, misfireGraceMinutes: 30 },
+  }, signal) as { readonly ok: false; readonly error: { readonly code: string } }
+  assert.equal(rejected.ok, false)
+  assert.equal(rejected.error.code, 'bad-request')
+  assert.equal(calls.length, 1)
+})
+
+test('run-now forwards the manual run mode and rejects unknown modes', async () => {
+  let handler: ((endpoint: string, payload: unknown, signal: AbortSignal) => Promise<unknown>) | undefined
+  const ctx = {
+    connection: { rpc: { handle: (_channel: string, value: typeof handler) => { handler = value; return async () => {} } } },
+  }
+  const calls: Array<{ scope: unknown; id: string; options: unknown }> = []
+  const service = {
+    runNow: async (scope: unknown, id: string, options: unknown) => {
+      calls.push({ scope, id, options })
+      return { id: 'run-1' }
+    },
+  }
+  registerAutomationRpc(ctx as never, service as never)
+  const signal = new AbortController().signal
+
+  const ahead = await handler?.('run-now', {
+    sessionId: 'session-source',
+    automationId: 'automation-ahead',
+    mode: 'ahead',
+  }, signal)
+  assert.deepEqual(ahead, { ok: true, value: { runId: 'run-1' } })
+
+  const plain = await handler?.('run-now', {
+    sessionId: 'session-source',
+    automationId: 'automation-plain',
+  }, signal)
+  assert.deepEqual(plain, { ok: true, value: { runId: 'run-1' } })
+  assert.deepEqual(calls, [
+    {
+      scope: { sessionId: 'session-source', creatorKind: 'web' },
+      id: 'automation-ahead',
+      options: { replaceNext: true },
+    },
+    {
+      scope: { sessionId: 'session-source', creatorKind: 'web' },
+      id: 'automation-plain',
+      options: { replaceNext: false },
+    },
+  ])
+
+  const rejected = await handler?.('run-now', {
+    sessionId: 'session-source',
+    automationId: 'automation-bad',
+    mode: 'sideways',
+  }, signal) as { readonly ok: false; readonly error: { readonly code: string } }
+  assert.equal(rejected.ok, false)
+  assert.equal(rejected.error.code, 'bad-request')
+  assert.equal(calls.length, 2)
 })

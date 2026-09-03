@@ -8,6 +8,21 @@ export interface AutomationConfig {
     readonly misfireGraceMs: number;
     readonly historyLimit: number;
     readonly archiveRunSessions: boolean;
+    /** Replay missed occurrences after a host resume instead of skipping stale ones. */
+    readonly catchUpMissedRuns: boolean;
+    /** Backlog cap per automation when catchUpMissedRuns is enabled (most recent occurrences win). */
+    readonly catchUpMissedRunsMax: number;
+}
+/** Durable host-wide policy, layered over the cordis config defaults. */
+export interface AutomationSettings {
+    readonly catchUpMissedRuns: boolean;
+    readonly catchUpMissedRunsMax: number;
+    readonly misfireGraceMinutes: number;
+}
+/** Minimal shape of the `ctx.settings` namespace owner the service consumes. */
+export interface AutomationSettingsOwner {
+    get(): Readonly<AutomationSettings>;
+    update(next: AutomationSettings): Promise<unknown>;
 }
 export interface CreateRequest {
     readonly name: string;
@@ -58,6 +73,18 @@ export declare class AutomationService {
     private stopping;
     private readonly active;
     private constructor();
+    private settingsOwner;
+    /**
+     * Bind the durable `ctx.settings` namespace owner (registered by the plugin
+     * entry) so runtime policy changes survive restarts. Without an owner the
+     * cordis config values remain the effective policy, which keeps the service
+     * usable in isolation (tests, missing settings provider).
+     */
+    attachSettings(owner: AutomationSettingsOwner): void;
+    /** Effective host-wide policy: the settings namespace when attached, else config defaults. */
+    settings(): Readonly<AutomationSettings>;
+    /** Persist a new host-wide policy through the settings namespace. */
+    updateSettings(scope: AutomationScope, next: AutomationSettings, signal?: AbortSignal): Promise<AutomationSettings>;
     static open(ctx: Context, config: AutomationConfig): Promise<AutomationService>;
     /** Start the disposable clock only after the surrounding Loader has settled. */
     start(): void;
@@ -78,7 +105,9 @@ export declare class AutomationService {
         readonly id: string;
         readonly deleted: boolean;
     }>;
-    runNow(scope: AutomationScope, id: string, signal?: AbortSignal): Promise<AutomationRun>;
+    runNow(scope: AutomationScope, id: string, options?: {
+        readonly replaceNext?: boolean;
+    }, signal?: AbortSignal): Promise<AutomationRun>;
     markRead(scope: AutomationScope, runId: string, signal?: AbortSignal): Promise<AutomationRun>;
     /** Archive the Session of one run so it leaves every conversation-list grouping surface. */
     archiveRun(scope: AutomationScope, runId: string, signal?: AbortSignal): Promise<AutomationRun>;
@@ -92,6 +121,19 @@ export declare class AutomationService {
     private requestPump;
     private pumpOnce;
     private claimLatestDue;
+    /**
+     * Catch-up admission: after a host resume, claim every scheduled occurrence
+     * in (handledThrough, now] that has no run record yet, so nothing the host
+     * missed while it was offline is skipped. Interval schedules stay on the
+     * grace/skip path (backlog replay makes no sense for fixed-rate reminders).
+     * The replay wait ("misfireGraceMinutes") also bounds how far back the
+     * backlog reaches: only occurrences inside the wait window are replayed,
+     * and the most recent `catchUpMissedRunsMax` of those win. Editing a
+     * definition does not cancel its unhandled past occurrences.
+     */
+    private claimMissedRuns;
+    /** A succeeded "run ahead" manual run counts as having handled its target occurrence. */
+    private isReplacedByManualRun;
     private startQueuedRuns;
     private startRun;
     private executeRun;
