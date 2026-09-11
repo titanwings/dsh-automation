@@ -1,6 +1,6 @@
 /** Fresh-Agent execution boundary for one already-claimed automation run. */
 
-import { installModelSelection, type ModelSelection } from '@deepseek-ai/dsh-agent'
+import { installModelSelection, type Agent, type ModelSelection } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-agent-default-model'
 import type {} from '@deepseek-ai/dsh-agent-presets'
 import type { Context } from '@deepseek-ai/cordis'
@@ -151,11 +151,9 @@ export async function executeAutomationRun(
       ...(config.signal === undefined ? {} : { signal: config.signal }),
       meta: { cwd: target.cwd, agentPreset: target.agentPreset },
       agentOptions: { provider: selection.provider, model: selection.model },
-      setup: async (agentCtx: Context) => {
+      setup: async (agentCtx: Context, agent: Agent) => {
         await ctx.agentPresets.mount(agentCtx, target.agentPreset)
         installModelSelection(agentCtx, { current: selection, assembled: undefined })
-        const agent = agentCtx.agent
-        if (agent === undefined) throw new Error('automation setup has no scoped Agent')
         setSandboxMode(agent.session, target.permissionPreset)
         setApprovalPolicy(agent.session, 'never')
         agentCtx.tools.guard((exec: ToolExecution) => unattendedToolGuardReason(exec.name, exec.arguments))

@@ -24,6 +24,10 @@ declare module '@deepseek-ai/schemastery' {
 }
 
 declare module '@deepseek-ai/dsh-agent' {
+  /** Unpublished Agent being composed, passed as the setup callback's 2nd argument. */
+  export interface Agent {
+    readonly session: any
+  }
   export interface ModelSelection {
     provider: string
     model: string
