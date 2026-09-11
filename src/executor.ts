@@ -200,7 +200,7 @@ export async function executeAutomationRun(
     if (timedOut || aborted) await handle.agent.whenIdle()
     if (timeout !== undefined) clearTimeout(timeout)
     await ctx.sessions.flush(handle.agent.session)
-    const outcome = summarizeRun(handle.agent.session.events, firstSeq)
+    const outcome = summarizeRun(handle.agent.session.snapshotEvents(), firstSeq)
     const summary = boundSummary(outcome.text)
     if (aborted) {
       return {

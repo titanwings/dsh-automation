@@ -95,7 +95,7 @@ export async function apply(ctx: Context, rawConfig: Config): Promise<void> {
     try {
       const mountTools = (agent: any): void => {
         if (!alive || agentTools.has(agent)
-          || service.ownsSession(String(agent.id), agent.session.events)) return
+          || service.ownsSession(String(agent.id), agent.session.snapshotEvents())) return
         if (!ctx.agents.roots().includes(agent)) return
         const dispose = agent.ctx.effect(
           () => registerAutomationTools(service, agent),
