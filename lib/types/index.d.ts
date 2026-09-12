@@ -20,6 +20,14 @@ export declare function needsHumanApproval(exec: {
     readonly signal: AbortSignal;
 }, isMountedAgent: boolean): boolean;
 export declare function humanApprovalReason(toolName: string): string;
+/** Preserve all prior gates and explain deterministic policy rejection before the Host mislabels it. */
+export declare function automationApprovalDecision(exec: Parameters<typeof needsHumanApproval>[0], isMountedAgent: boolean, downstream: {
+    readonly kind: string;
+    readonly reason?: string;
+}, readPolicy: () => unknown): {
+    readonly kind: string;
+    readonly reason?: string;
+};
 /** Mount one host-wide authority and agent-scoped management tools. */
 export declare function apply(ctx: Context, rawConfig: Config): Promise<void>;
 export type * from './types.ts';

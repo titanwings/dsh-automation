@@ -58,6 +58,25 @@ export function humanApprovalReason(toolName: string): string {
     : 'This action creates or expands unattended future work. Review its prompt, schedule, workspace, and permission boundary.'
 }
 
+/** Preserve all prior gates and explain deterministic policy rejection before the Host mislabels it. */
+export function automationApprovalDecision(
+  exec: Parameters<typeof needsHumanApproval>[0],
+  isMountedAgent: boolean,
+  downstream: { readonly kind: string; readonly reason?: string },
+  readPolicy: () => unknown,
+): { readonly kind: string; readonly reason?: string } {
+  if (downstream.kind !== 'allow' || !needsHumanApproval(exec, isMountedAgent)) return downstream
+  let policy: unknown
+  try { policy = readPolicy() } catch {
+    return { kind: 'deny', reason: 'Cannot read this session\'s approval policy. No automation was changed. Check the Host approval service or manage the task in the Automations view.' }
+  }
+  if (policy === 'never') return {
+    kind: 'deny',
+    reason: 'This session\'s approval policy is "never": approval prompts are disabled and this automation action is blocked automatically, not rejected by the user. Ask the user to switch the session approval policy to "ask" and retry, or create/manage the task manually in the Automations view. Do not retry automatically or change the approval policy yourself.',
+  }
+  return { kind: 'ask', reason: humanApprovalReason(exec.name) }
+}
+
 /** Mount one host-wide authority and agent-scoped management tools. */
 export async function apply(ctx: Context, rawConfig: Config): Promise<void> {
   const config = rawConfig as Required<Config>
@@ -152,12 +171,15 @@ export async function apply(ctx: Context, rawConfig: Config): Promise<void> {
       stopDisposed = ctx.on('agent/disposed', ({ agent }: any) => { agentTools.delete(String(agent.id)) })
       stopApproval = ctx.on('tools/pre-execute', async (exec: any, next: () => Promise<any>) => {
         const downstream = await next()
-        if (downstream.kind !== 'allow'
-          || !needsHumanApproval(exec, exec.agent?.id !== undefined && agentTools.has(String(exec.agent.id)))) return downstream
-        return {
-          kind: 'ask' as const,
-          reason: humanApprovalReason(exec.name),
-        }
+        return automationApprovalDecision(
+          exec,
+          exec.agent?.id !== undefined && agentTools.has(String(exec.agent.id)),
+          downstream,
+          () => {
+            const approval = ctx.get('approval') as { effectivePolicy?: (session: unknown) => unknown } | undefined
+            return approval?.effectivePolicy?.(exec.agent.session)
+          },
+        )
       })
       removeRpc = registerAutomationRpc(ctx, service)
 
